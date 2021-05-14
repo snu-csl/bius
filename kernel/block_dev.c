@@ -1,27 +1,48 @@
+#include <linux/types.h>
 #include "block_dev.h"
+#include "char_dev.h"
 
-static unsigned char mem_buffer[4 * 1024 * 1024];
+#ifdef DEBUG
+#define printd printk
+#else
+#define printd(x, ...) (void)(x)
+#endif
+
+struct kmem_cache *buse_request_cachep;
+atomic64_t next_request_id = ATOMIC64_INIT(0);
 
 static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd) {
     struct request *rq = bd->rq;
-    struct req_iterator iter;
-    struct bio_vec bvec;
+    struct buse_request *buse_request;
     loff_t pos = blk_rq_pos(rq) << SECTOR_SHIFT;
 
     blk_mq_start_request(rq);
-        
-    rq_for_each_segment(bvec, rq, iter) {
-        void *data = page_address(bvec.bv_page) + bvec.bv_offset;
-        unsigned long length = bvec.bv_len;
 
-        if (rq_data_dir(rq) == WRITE) {
-            memcpy(mem_buffer + pos, data, length);
-        } else { // READ
-            memcpy(data, mem_buffer + pos, length);
-        }
-
-        pos += length;
+    if (only_connection == NULL) {
+        blk_mq_end_request(rq, BLK_STS_IOERR);
+        return BLK_STS_IOERR;
     }
+
+    buse_request = kmem_cache_alloc(buse_request_cachep, GFP_KERNEL);
+    buse_request->id = atomic64_inc_return(&next_request_id);
+    buse_request->type = rq_data_dir(rq) == WRITE? BUSE_WRITE : BUSE_READ;
+    buse_request->pos = pos;
+    buse_request->length = blk_rq_bytes(rq);
+    buse_request->bio = rq->bio;
+    buse_request->bv_remain = rq->bio->bi_io_vec->bv_len;
+    buse_request->done = 0;
+
+    printd("buse: new_request: type = %d, pos = %lld, length = %ld\n", buse_request->type, pos, buse_request->length);
+
+    spin_lock(&only_connection->pending_lock);
+    list_add_tail(&buse_request->list, &only_connection->pending_requests);
+    spin_unlock(&only_connection->pending_lock);
+
+    wake_up(&only_connection->wait_queue);
+
+    while (wait_event_interruptible_exclusive(only_connection->wait_queue, buse_request->done));
+
+    kmem_cache_free(buse_request_cachep, buse_request);
 
     blk_mq_end_request(rq, BLK_STS_OK);
     return BLK_STS_OK;
@@ -106,7 +127,8 @@ int create_block_device(const char *name) {
     disk->fops = &buse_fops;
     disk->private_data = NULL;
 
-    set_capacity(disk, sizeof(mem_buffer) >> SECTOR_SHIFT);
+    /* TODO: FIX HERE */
+    set_capacity(disk, 2 * 1024 * 1024 /* 1GB */);
 
     add_disk(disk);
 
@@ -129,4 +151,18 @@ void remove_block_device(const char *name) {
     blk_mq_free_tag_set(&tag_set);
     put_disk(disk);
     unregister_blkdev(major, name);
+}
+
+int __init buse_block_init(void) {
+    buse_request_cachep = kmem_cache_create("buse_requests", sizeof(struct buse_request), 0, 0, NULL);
+    if (!buse_request_cachep) {
+        printk("buse: request cache creation failed\n");
+        return -ENOMEM;
+    }
+
+    return 0;
+}
+
+void buse_block_exit(void) {
+    kmem_cache_destroy(buse_request_cachep);
 }
