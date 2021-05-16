@@ -2,17 +2,11 @@
 #include <linux/file.h>
 #include <linux/splice.h>
 #include <linux/uio.h>
-#include <linux/slab.h>
 
 #include "char_dev.h"
 #include "connection.h"
 #include "command.h"
-
-#ifdef DEBUG
-#define printd printk
-#else
-#define printd(x, ...) (void)(x)
-#endif
+#include "utils.h"
 
 struct buse_connection *only_connection;
 
@@ -39,8 +33,7 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
 
         if (request_io_done(request)) {
             connection->sending = NULL;
-            end_request(request);
-            wake_up(&connection->wait_queue);
+            end_request(request, BLK_STS_OK);
         }
 
         return ret;
@@ -80,10 +73,9 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
             if (user_buffer_size > 0)
                 ret += buse_send_data(request, user_buffer_size, to);
 
-            if (request_io_done(request)) {
-                end_request(request);
-                wake_up(&connection->wait_queue);
-            } else
+            if (request_io_done(request))
+                end_request(request, BLK_STS_OK);
+            else
                 connection->sending = request;
         }
 
@@ -103,8 +95,7 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
         ret = buse_receive_data(request, user_buffer_size, from);
         if (request_io_done(request)) {
             connection->receiving = NULL;
-            end_request(request);
-            wake_up(&connection->wait_queue);
+            end_request(request, BLK_STS_OK);
         }
 
         return ret;
@@ -132,9 +123,7 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
                 ret += buse_receive_data(request, user_buffer_size, from);
 
                 if (request_io_done(request)) {
-                    end_request(request);
-                    wake_up(&connection->wait_queue);
-
+                    end_request(request, BLK_STS_OK);
                     return ret;
                 }
             }
@@ -144,8 +133,7 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
             list_add(&request->list, &connection->waiting_requests);
             spin_unlock(&connection->waiting_lock);
         } else {
-            end_request(request);
-            wake_up(&connection->wait_queue);
+            end_request(request, BLK_STS_OK);
         }
 
         return ret;
@@ -153,10 +141,26 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 }
 
 static int buse_dev_release(struct inode *inode, struct file *file) {
-    if (file->private_data == only_connection)
+    struct buse_connection *connection = get_buse_connection(file);
+    struct buse_request *request;
+
+    if (connection == only_connection)
         only_connection = NULL;
 
-    kfree(file->private_data);
+    list_for_each_entry(request, &connection->pending_requests, list) {
+        end_request(request, BLK_STS_IOERR);
+    }
+
+    list_for_each_entry(request, &connection->waiting_requests, list) {
+        end_request(request, BLK_STS_IOERR);
+    }
+
+    if (connection->sending)
+        end_request(connection->sending, BLK_STS_IOERR);
+    if (connection->receiving)
+        end_request(connection->receiving, BLK_STS_IOERR);
+
+    kfree(connection);
     return 0;
 }
 

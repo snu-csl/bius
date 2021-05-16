@@ -47,14 +47,16 @@ inline ssize_t buse_send_data(struct buse_request *request, size_t remain_buffer
         data = page_address(bvec->bv_page) + bvec->bv_offset + bvec->bv_len - request->bv_remain;
 
         if (remain_buffer >= bv_remain) {
-            copy_to_iter(data, bv_remain, to);
+            if (copy_to_iter(data, bv_remain, to) < bv_remain)
+                return -EIO;
             remain_buffer -= bv_remain;
             total_sent += bv_remain;
 
             request->bio = request->bio->bi_next;
             request->bv_remain = request->bio? request->bio->bi_io_vec->bv_len : 0;
         } else {
-            copy_to_iter(data, remain_buffer, to);
+            if (copy_to_iter(data, remain_buffer, to) < remain_buffer)
+                return -EIO;
             total_sent += bv_remain;
 
             request->bv_remain -= remain_buffer;
@@ -80,14 +82,16 @@ inline ssize_t buse_receive_data(struct buse_request *request, size_t remain_buf
         data = page_address(bvec->bv_page) + bvec->bv_offset + bvec->bv_len - request->bv_remain;
 
         if (remain_buffer >= bv_remain) {
-            copy_from_iter(data, bv_remain, from);
+            if (copy_from_iter(data, bv_remain, from) < bv_remain)
+                return -EIO;
             remain_buffer -= bv_remain;
             total_received += bv_remain;
 
             request->bio = request->bio->bi_next;
             request->bv_remain = request->bio? request->bio->bi_io_vec->bv_len : 0;
         } else {
-            copy_from_iter(data, remain_buffer, from);
+            if (copy_from_iter(data, remain_buffer, from) < remain_buffer)
+                return -EIO;
             total_received += bv_remain;
 
             request->bv_remain -= remain_buffer;

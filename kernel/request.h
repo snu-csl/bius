@@ -3,6 +3,7 @@
 
 #include <linux/list.h>
 #include <linux/blk_types.h>
+#include <linux/blk-mq.h>
 
 typedef enum buse_req {
     BUSE_CONNECT = 0,
@@ -21,11 +22,13 @@ struct buse_request {
     struct list_head list;
     struct bio *bio;
     size_t bv_remain;
-    int done;
+    blk_status_t result;
 };
 
-static inline void end_request(struct buse_request *request) {
-    request->done = 1;
+static inline void end_request(struct buse_request *request, blk_status_t result) {
+    struct request *rq = blk_mq_rq_from_pdu(request);
+    request->result = result;
+    blk_mq_complete_request(rq);
 }
 
 static inline struct buse_request *get_request_by_id(struct list_head *list, uint64_t id) {
