@@ -21,7 +21,7 @@ static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
     buse_request->id = atomic64_inc_return(&next_request_id);
     buse_request->type = rq_data_dir(rq) == WRITE? BUSE_WRITE : BUSE_READ;
     buse_request->pos = pos;
-    buse_request->length = blk_rq_bytes(rq);
+    buse_request->remain_length = buse_request->length = blk_rq_bytes(rq);
     buse_request->bio = rq->bio;
     buse_request->bv_remain = rq->bio->bi_io_vec->bv_len;
 

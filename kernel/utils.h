@@ -4,7 +4,9 @@
 #ifdef DEBUG
 #define printd printk
 #else
-#define printd(x, ...) (void)(x)
+static inline int printd(const char *format, ...) {
+    return 0;
+}
 #endif
 
 #endif
