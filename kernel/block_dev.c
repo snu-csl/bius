@@ -1,6 +1,7 @@
 #include "block_dev.h"
 
-static unsigned char mem_buffer[4 * 1024 * 1024];
+static unsigned char *mem_buffer = NULL;
+static const size_t mem_buffer_size = 10lu * 1024 * 1024 * 1024;
 
 static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd) {
     struct request *rq = bd->rq;
@@ -66,9 +67,15 @@ struct block_device_operations buse_fops = {
 int create_block_device(const char *name) {
     int ret = 0;
 
+    if (mem_buffer == NULL) {
+        mem_buffer = kvmalloc(mem_buffer_size, GFP_KERNEL);
+        if (mem_buffer == NULL)
+            return -ENOMEM;
+    }
+
     major = register_blkdev(0, name);
     if (major < 0)
-        return major;
+        goto out_mem;
 
     disk = alloc_disk(1);
     if (disk == NULL) {
@@ -106,7 +113,7 @@ int create_block_device(const char *name) {
     disk->fops = &buse_fops;
     disk->private_data = NULL;
 
-    set_capacity(disk, sizeof(mem_buffer) >> SECTOR_SHIFT);
+    set_capacity(disk, mem_buffer_size >> SECTOR_SHIFT);
 
     add_disk(disk);
 
@@ -121,6 +128,10 @@ out_put_disk:
 out_unregister:
     unregister_blkdev(major, name);
 
+out_mem:
+    kvfree(mem_buffer);
+    mem_buffer = NULL;
+
     return ret;
 }
 
@@ -129,4 +140,8 @@ void remove_block_device(const char *name) {
     blk_mq_free_tag_set(&tag_set);
     put_disk(disk);
     unregister_blkdev(major, name);
+    if (mem_buffer) {
+        kvfree(mem_buffer);
+        mem_buffer = NULL;
+    }
 }
