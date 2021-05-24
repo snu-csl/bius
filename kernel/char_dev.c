@@ -74,7 +74,7 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
 
         if (request->type == BUSE_READ) {
             spin_lock(&connection->waiting_lock);
-            list_add(&request->list, &connection->waiting_requests);
+            list_add_tail(&request->list, &connection->waiting_requests);
             spin_unlock(&connection->waiting_lock);
         } else if (request->type == BUSE_WRITE) {
             if (user_buffer_size > 0) {
@@ -150,9 +150,6 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
             }
 
             connection->receiving = request;
-            spin_lock(&connection->waiting_lock);
-            list_add(&request->list, &connection->waiting_requests);
-            spin_unlock(&connection->waiting_lock);
         } else {
             end_request(request, BLK_STS_OK);
         }
