@@ -9,4 +9,7 @@ static inline int printd(const char *format, ...) {
 }
 #endif
 
+#define mp_bio_iter_iovec(bio, iter) \
+        mp_bvec_iter_bvec((bio)->bi_io_vec, (iter))
+
 #endif

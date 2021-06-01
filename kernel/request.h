@@ -22,7 +22,6 @@ struct buse_request {
     size_t remain_length;
     struct list_head list;
     struct bio *bio;
-    size_t bv_remain;
     blk_status_t result;
 };
 

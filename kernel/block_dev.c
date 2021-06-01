@@ -24,7 +24,6 @@ static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
     buse_request->pos = pos;
     buse_request->remain_length = buse_request->length = blk_rq_bytes(rq);
     buse_request->bio = rq->bio;
-    buse_request->bv_remain = rq->bio->bi_io_vec->bv_len;
 
     printd("buse: new_request: type = %d, pos = %lld, length = %ld\n", buse_request->type, pos, buse_request->length);
 
