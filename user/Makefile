@@ -1,14 +1,18 @@
-CFLAGS := -Wall -std=c11
+CFLAGS := -Wall -std=c11 -O2 -D_LARGEFILE64_SOURCE
 
-all: test blktest test-passthrough
+LDFLAGS := -lpthread
 
-test: test.c command.h utils.h
+EXECUTABLES := blktest ramdisk
+
+all: $(EXECUTABLES)
 
 blktest: blktest.c
 
-test-passthrough: test-passthrough.c command.h utils.h
+libbuse.o: libbuse.c libbuse.h command.h utils.h
+
+ramdisk: ramdisk.c libbuse.o
 
 clean:
-	rm -rf test test-passthrough blktest *.o
+	rm -rf $(EXECUTABLES) *.o
 
 .PHONY: all clean

@@ -8,15 +8,19 @@
 #include "command.h"
 #include "utils.h"
 
-struct buse_connection *only_connection;
-
 static int buse_dev_open(struct inode *inode, struct file *file) {
-    struct buse_connection *connection = kmalloc(sizeof(struct buse_connection), GFP_KERNEL);
-    init_buse_connection(connection);
-    file->private_data = connection;
+    struct buse_connection *connection;
 
-    if (only_connection == NULL)
-        only_connection = connection;
+    if (only_device == NULL)
+        return -EIO;
+
+    connection = kmalloc(sizeof(struct buse_connection), GFP_KERNEL);
+    if (connection == NULL)
+        return -ENOMEM;
+
+    init_buse_connection(connection);
+    connection->block_dev = only_device;
+    file->private_data = connection;
 
     return 0;
 }
@@ -25,6 +29,7 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
     ssize_t total_read = 0;
     ssize_t ret;
     struct buse_connection *connection = get_buse_connection(iocb->ki_filp);
+    struct buse_block_device *block_dev = connection->block_dev;
     struct buse_request *request;
 
     printd("buse: dev_read: size = %ld\n", iov_iter_count(to));
@@ -48,20 +53,20 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
             return -EINVAL;
 
         while (1) {
-            spin_lock(&connection->pending_lock);
-            if (!list_empty(&connection->pending_requests))
+            spin_lock(&block_dev->pending_lock);
+            if (!list_empty(&block_dev->pending_requests))
                 break;
 
-            spin_unlock(&connection->pending_lock);
-            ret = wait_event_interruptible_exclusive(connection->wait_queue, !list_empty(&connection->pending_requests));
+            spin_unlock(&block_dev->pending_lock);
+            ret = wait_event_interruptible_exclusive(block_dev->wait_queue, !list_empty(&block_dev->pending_requests));
 
             if (ret)
                 return ret;
         }
 
-        request = list_entry(connection->pending_requests.next, struct buse_request, list);
+        request = list_entry(block_dev->pending_requests.next, struct buse_request, list);
         list_del(&request->list);
-        spin_unlock(&connection->pending_lock);
+        spin_unlock(&block_dev->pending_lock);
 
         printd("buse: sending request: id = %llu, type = %d, pos = %lld, length = %lu\n", request->id, request->type, request->pos, request->length);
 
@@ -161,13 +166,6 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 static int buse_dev_release(struct inode *inode, struct file *file) {
     struct buse_connection *connection = get_buse_connection(file);
     struct buse_request *request;
-
-    if (connection == only_connection)
-        only_connection = NULL;
-
-    list_for_each_entry(request, &connection->pending_requests, list) {
-        end_request(request, BLK_STS_IOERR);
-    }
 
     list_for_each_entry(request, &connection->waiting_requests, list) {
         end_request(request, BLK_STS_IOERR);

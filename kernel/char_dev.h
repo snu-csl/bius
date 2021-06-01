@@ -7,8 +7,6 @@
 
 #define BUSE_MINOR MISC_DYNAMIC_MINOR
 
-extern struct buse_connection *only_connection;
-
 int __init buse_dev_init(void);
 void buse_dev_exit(void);
 

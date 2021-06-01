@@ -52,6 +52,5 @@ Mkfile.old
 dkms.conf
 
 # Executables
-test
 blktest
-test-passthrough
+ramdisk
