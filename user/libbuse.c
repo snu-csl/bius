@@ -4,11 +4,14 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include "command.h"
 #include "libbuse.h"
 #include "utils.h"
+
+#define DATA_MAP_AREA_SIZE (1 * 1024 * 1024 * 1024)
 
 static inline int read_command(int fd, struct buse_k2u_header *header) {
     ssize_t result = read(fd, header, sizeof(struct buse_k2u_header));
@@ -22,25 +25,6 @@ static inline int read_command(int fd, struct buse_k2u_header *header) {
     }
 
     return result;
-}
-
-static inline int read_data(int fd, char *buffer, size_t size) {
-    ssize_t total_read = 0;
-
-    while (total_read < size) {
-        ssize_t read_size = read(fd, buffer, size - total_read);
-        printd("data read: request = %lu, got = %ld\n", size - total_read, read_size);
-
-        if (read_size <= 0) {
-            fprintf(stderr, "Read failed: %ld\n", read_size);
-            return read_size;
-        }
-
-        total_read += read_size;
-        buffer += read_size;
-    }
-
-    return total_read;
 }
 
 static inline int write_command(int fd, const struct buse_u2k_header *header) {
@@ -57,26 +41,9 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
-static inline int write_data(int fd, const char *buffer, size_t size) {
-    ssize_t total_written = 0;
-
-    while (total_written < size) {
-        ssize_t written = write(fd, buffer, size - total_written);
-        printd("data write: request = %lu, sent = %ld\n", size - total_written, written);
-        if (written <= 0) {
-            fprintf(stderr, "Writing failed: %ld\n", written);
-            return -1;
-        }
-        total_written += written;
-    }
-
-    return total_written;
-}
-
 static void *thread_main(void *arg) {
     const struct buse_options *options = arg;
     const struct buse_operations *ops = options->operations;
-    char buffer[128 * 1024];
     struct buse_k2u_header k2u;
     struct buse_u2k_header u2k;
     int buse_char_dev = open("/dev/buse", O_RDWR);
@@ -84,37 +51,36 @@ static void *thread_main(void *arg) {
         fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
         exit(1);
     }
+    void *data_area = mmap(NULL, DATA_MAP_AREA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, buse_char_dev, 0);
+    printd("mmap result = %p\n", data_area);
+    if (data_area == MAP_FAILED) {
+        fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+        exit(1);
+    }
 
     while (1) {
         int result = read_command(buse_char_dev, &k2u);
-        printd("command read. id = %lu, opcode = %d, offset = %lu, length = %lu\n", k2u.id, k2u.opcode, k2u.offset, k2u.length);
+        printd("command read. id = %lu, opcode = %d, offset = %lu, length = %lu, data_address = %lx\n", k2u.id, k2u.opcode, k2u.offset, k2u.length, k2u.data_address);
         if (result < 0)
             exit(1);
 
+        u2k.id = k2u.id;
+
         switch (k2u.opcode) {
             case BUSE_READ:
-                u2k.id = k2u.id;
-                u2k.reply = ops->read(buffer, k2u.offset, k2u.length);
-
-                result = write_command(buse_char_dev, &u2k);
-                if (result < 0)
-                    exit(1);
-                result = write_data(buse_char_dev, buffer, u2k.reply);
-                if (result < 0)
-                    exit(1);
+                u2k.reply = ops->read((void *)k2u.data_address, k2u.offset, k2u.length);
                 break;
             case BUSE_WRITE:
-                result = read_data(buse_char_dev, buffer, k2u.length);
-                if (result < 0)
-                    exit(1);
-                ops->write(buffer, k2u.offset, k2u.length);
+                u2k.reply = ops->write((void *)k2u.data_address, k2u.offset, k2u.length);
                 break;
             default:
                 fprintf(stderr, "Unknown opcode: %d\n", k2u.opcode);
                 exit(1);
         }
 
-
+        result = write_command(buse_char_dev, &u2k);
+        if (result < 0)
+            exit(1);
     }
 
     return NULL;

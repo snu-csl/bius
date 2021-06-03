@@ -18,6 +18,7 @@ struct buse_k2u_header {
     buse_req_t opcode;
     uint64_t offset;
     uint64_t length;
+    uint64_t data_address;
 };
 
 struct buse_u2k_header {

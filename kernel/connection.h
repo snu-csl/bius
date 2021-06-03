@@ -13,8 +13,9 @@ struct buse_connection {
     /* List of requests waiting for userspace response */
     struct list_head waiting_requests;
     spinlock_t waiting_lock;
-    struct buse_request *sending;
-    struct buse_request *receiving;
+    struct vm_area_struct *vma;
+    unsigned long *page_bitmap;
+    size_t bitmap_count;
 };
 
 static inline struct buse_connection *get_buse_connection(struct file *file) {
@@ -24,8 +25,8 @@ static inline struct buse_connection *get_buse_connection(struct file *file) {
 static inline void init_buse_connection(struct buse_connection *connection) {
     INIT_LIST_HEAD(&connection->waiting_requests);
     spin_lock_init(&connection->waiting_lock);
-    connection->sending = NULL;
-    connection->receiving = NULL;
+    connection->vma = NULL;
+    connection->bitmap_count = 0;
 }
 
 #endif

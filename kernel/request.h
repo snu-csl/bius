@@ -19,9 +19,10 @@ struct buse_request {
     buse_req_t type;
     loff_t pos;
     size_t length;
-    size_t remain_length;
     struct list_head list;
     struct bio *bio;
+    int is_data_mapped;
+    int mapped_area;
     blk_status_t result;
 };
 
@@ -40,10 +41,6 @@ static inline struct buse_request *get_request_by_id(struct list_head *list, uin
     }
 
     return NULL;
-}
-
-static inline int request_io_done(struct buse_request *request) {
-    return request->remain_length == 0;
 }
 
 #endif
