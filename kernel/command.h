@@ -29,7 +29,7 @@ inline ssize_t buse_send_command(struct buse_connection *connection, struct buse
     };
 
     if (request->is_data_mapped)
-        header.data_address = connection->vma->vm_start + request->mapped_area * BUSE_PER_BITMAP_SIZE;
+        header.data_address = connection->vma->vm_start;
 
     switch (request->type) {
         case BUSE_READ:

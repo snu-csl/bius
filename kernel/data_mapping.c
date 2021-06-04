@@ -1,18 +1,36 @@
 #include <linux/rwsem.h>
 #include <linux/mm.h>
+#include "tlbflush.h"
 #include "connection.h"
 #include "config.h"
+#include "char_dev.h"
 #include "data_mapping.h"
 #include "utils.h"
 
-static void buse_vm_open(struct vm_area_struct *vma) {
+void buse_vm_open(struct vm_area_struct *vma) {
+    struct buse_connection *connection = vma->vm_private_data;
+    unsigned long addr = vma->vm_start;
+    pte_t *pte;
+    spinlock_t *ptl;
+    int err;
+
+    err = partial_map_pfn(vma, addr, PHYS_PFN(virt_to_phys(zero_pages)), vma->vm_end - vma->vm_start, vma->vm_page_prot);
+    if (err) {
+        printk("buse: remap_pfn_range failed\n");
+        return;
+    }
+
+    for (int i = 0; i < BUSE_PTES_PER_COMMAND; i++, addr += PAGE_SIZE) {
+        err = follow_pte(vma->vm_mm, addr, &pte, &ptl);
+        if (err)
+            printk("buse: follow_pte failed: %d\n", err);
+        spin_unlock(ptl);
+        connection->ptes[i] = pte;
+    }
 }
 
 static void buse_vm_close(struct vm_area_struct *vma) {
     struct buse_connection *connection = vma->vm_private_data;
-
-    kvfree(connection->page_bitmap);
-    connection->page_bitmap = NULL;
     connection->vma = NULL;
 }
 
@@ -26,96 +44,55 @@ const struct vm_operations_struct buse_vm_operations = {
     .fault = buse_vm_fault,
 };
 
-static int get_area(struct buse_connection *connection) {
-    int result;
-
-    for (size_t i = 0; i < connection->bitmap_count; i++) {
-        if (connection->page_bitmap[i] != ~0ul) {
-            result = ffz(connection->page_bitmap[i]);
-            connection->page_bitmap[i] |= (1 << result);
-
-            printd("buse: get_area = %d\n", (int)(i * sizeof(unsigned long) * 8 + result));
-            return i * sizeof(unsigned long) * 8 + result;
-        }
-    }
-
-    return -ENOMEM;
-}
-
-static void free_area(struct buse_connection *connection, int area) {
-    int index = area / (sizeof(unsigned long) * 8);
-    int bit = area % (sizeof(unsigned long) * 8);
-
-    printd("buse: free_area %d\n", area);
-    connection->page_bitmap[index] &= ~(1 << bit);
-}
-
 int buse_map_data(struct buse_request *request, struct buse_connection *connection) {
     struct vm_area_struct *vma = connection->vma;
     struct req_iterator iter;
     struct bio_vec bvec;
     unsigned long addr;
-    int area;
-    int result;
+    int page_num = 0;
 
     if (request->is_data_mapped) {
-        printk("buse: request is already mapped\n");
+        printk("buse: request is already mapped, id = %llu\n", request->id);
         return 0;
     }
 
-    down_write(&vma->vm_mm->mmap_lock);
-    result = area = get_area(connection);
-    if (area < 0)
-        goto out;
-
-    addr = vma->vm_start + area * BUSE_PER_BITMAP_SIZE;
+    addr = vma->vm_start;
+    flush_cache_range(vma, vma->vm_start, vma->vm_end);
     rq_for_each_segment(bvec, blk_mq_rq_from_pdu(request), iter) {
+        unsigned long pfn = page_to_pfn(bvec.bv_page);
+
         if (unlikely(bvec.bv_offset != 0)) {
             printk("buse: bv offset is not zero\n");
-            result = -EINVAL;
-            goto out_free;
+            return -EINVAL;
         } else if (unlikely(bvec.bv_len % PAGE_SIZE != 0)) {
             printk("buse: bv size is not aligned to page size\n");
-            result = -EINVAL;
-            goto out_free;
+            return -EINVAL;
         }
 
-//      result = remap_pfn_range(vma, addr, page_to_pfn(bvec.bv_page), bvec.bv_len, vma->vm_page_prot);
-        result = partial_map_pfn(vma, addr, page_to_pfn(bvec.bv_page), bvec.bv_len, vma->vm_page_prot);
-//      result = vm_insert_page(vma, addr, bvec.bv_page);
-        if (result < 0)
-            goto out_unmap;
-
-        addr += PAGE_SIZE;
+        for (int i = 0; i < bvec.bv_len; i += PAGE_SIZE) {
+            set_pte_at(vma->vm_mm, addr, connection->ptes[page_num], pte_mkspecial(pfn_pte(pfn, vma->vm_page_prot)));
+            addr += PAGE_SIZE;
+            page_num++;
+            pfn++;
+        }
     }
-
-    up_write(&vma->vm_mm->mmap_lock);
+    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, vma->vm_end, PAGE_SHIFT, false);
 
     request->is_data_mapped = 1;
-    request->mapped_area = area;
     return 0;
-
-out_unmap:
-    addr = vma->vm_start + area * BUSE_PER_BITMAP_SIZE;
-    zap_vma_ptes(vma, addr, BUSE_PER_BITMAP_SIZE);
-
-out_free:
-    free_area(connection, area);
-
-out:
-    up_write(&vma->vm_mm->mmap_lock);
-    return result;
 }
 
 void buse_unmap_data(struct buse_request *request, struct buse_connection *connection) {
     struct vm_area_struct *vma = connection->vma;
-    unsigned long addr = vma->vm_start + request->mapped_area * (BUSE_PER_BITMAP_SIZE / PAGE_SIZE);
+    unsigned long addr = vma->vm_start;
 
-    down_write(&vma->vm_mm->mmap_lock);
-    zap_vma_ptes(vma, addr, BUSE_PER_BITMAP_SIZE);
-    free_area(connection, request->mapped_area);
-    up_write(&vma->vm_mm->mmap_lock);
+    if (!request->is_data_mapped)
+        return;
+
+    for (int i = 0; i < BUSE_PTES_PER_COMMAND; i++, addr += PAGE_SIZE) {
+        set_pte_at(vma->vm_mm, addr, connection->ptes[i], pte_mkspecial(pfn_pte(zero_pages_pfn + i, PAGE_READONLY)));
+    }
+    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, vma->vm_end, PAGE_SHIFT, false);
 
     request->is_data_mapped = 0;
-    request->mapped_area = 0;
 }

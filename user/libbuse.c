@@ -11,7 +11,7 @@
 #include "libbuse.h"
 #include "utils.h"
 
-#define DATA_MAP_AREA_SIZE (1 * 1024 * 1024 * 1024)
+#define DATA_MAP_AREA_SIZE (128 * 1024)
 
 static inline int read_command(int fd, struct buse_k2u_header *header) {
     ssize_t result = read(fd, header, sizeof(struct buse_k2u_header));

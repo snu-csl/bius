@@ -9,6 +9,9 @@
 #include "data_mapping.h"
 #include "utils.h"
 
+void *zero_pages = NULL;
+unsigned long zero_pages_pfn = 0;
+
 static int buse_dev_open(struct inode *inode, struct file *file) {
     struct buse_connection *connection;
 
@@ -131,26 +134,19 @@ static int buse_dev_mmap(struct file *file, struct vm_area_struct *vma) {
 
     if (connection->vma)
         return -EBUSY;
-    if (vma_size % BUSE_SIZE_PER_BITMAP != 0) {
-        printk("buse: mmap: size is not multiple of BUSE_SIZE_PER_BITMAP\n");
+    if (vma_size < BUSE_MAX_SIZE_PER_COMMAND) {
+        printk("buse: mmap: size is smaller than BUSE_MAX_SIZE_PER_COMMAND\n");
         return -EINVAL;
     }
 
     connection->vma = vma;
-    vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP | VM_PFNMAP;
+    vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP | VM_PFNMAP | VM_IO;
     vma->vm_private_data = connection;
     vma->vm_ops = &buse_vm_operations;
 
-    connection->page_bitmap = kvzalloc((vma->vm_end - vma->vm_start) / PAGE_SIZE / 8, GFP_KERNEL);
-    connection->bitmap_count = (vma->vm_end - vma->vm_start) / PAGE_SIZE / 8 / sizeof(unsigned long);
-    if (connection->page_bitmap == NULL)
-        goto out;
+    buse_vm_open(vma);
 
     return 0;
-
-out:
-    connection->vma = NULL;
-    return -ENOMEM;
 }
 
 const struct file_operations buse_dev_operations = {
@@ -176,9 +172,16 @@ static struct miscdevice buse_device = {
 };
 
 int __init buse_dev_init(void) {
+    zero_pages = kzalloc(BUSE_MAX_SIZE_PER_COMMAND, GFP_KERNEL);
+    if (!zero_pages)
+        return -ENOMEM;
+    zero_pages_pfn = PHYS_PFN(virt_to_phys(zero_pages));
+
     return misc_register(&buse_device);
 }
 
 void buse_dev_exit(void) {
     misc_deregister(&buse_device);
+    if (zero_pages)
+        kfree(zero_pages);
 }

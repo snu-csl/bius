@@ -22,7 +22,6 @@ struct buse_request {
     struct list_head list;
     struct bio *bio;
     int is_data_mapped;
-    int mapped_area;
     blk_status_t result;
 };
 
