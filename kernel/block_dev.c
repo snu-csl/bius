@@ -1,4 +1,5 @@
 #include "block_dev.h"
+#include "config.h"
 
 static unsigned char *mem_buffer = NULL;
 static const size_t mem_buffer_size = 10lu * 1024 * 1024 * 1024;
@@ -102,8 +103,8 @@ int create_block_device(const char *name) {
     disk->queue->limits.discard_granularity = 0;
     disk->queue->limits.discard_alignment = 0;
     blk_queue_max_discard_sectors(disk->queue, 0);
-    blk_queue_max_segment_size(disk->queue, 0);
-    blk_queue_max_segments(disk->queue, 0);
+    blk_queue_max_segment_size(disk->queue, BUSE_MAX_SEGMENT_SIZE);
+    blk_queue_max_segments(disk->queue, BUSE_MAX_SEGMENTS);
     blk_queue_max_hw_sectors(disk->queue, 65536);
     disk->queue->limits.max_sectors = 256;
 
