@@ -39,7 +39,7 @@ struct request_queue *q;
 
 struct blk_mq_tag_set tag_set = {
     .ops = &buse_mq_ops,
-    .nr_hw_queues = 1,
+    .nr_hw_queues = 4,
     .queue_depth = 128,
     .numa_node = NUMA_NO_NODE,
     .cmd_size = sizeof(struct buse_cmd),
