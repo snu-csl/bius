@@ -9,4 +9,6 @@ static inline int printd(const char *format, ...) {
 }
 #endif
 
+#define min(x, y) ((x) > (y) ? (y) : (x))
+
 #endif

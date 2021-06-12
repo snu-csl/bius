@@ -55,3 +55,5 @@ dkms.conf
 blktest
 ramdisk
 passthrough
+zoned-ramdisk
+zoned-passthrough

@@ -17,6 +17,7 @@ struct buse_k2u_header {
 struct buse_u2k_header {
     uint64_t id;
     ssize_t reply;
+    uint64_t user_data_address;
 };
 
 inline ssize_t buse_send_command(struct buse_connection *connection, struct buse_request *request, struct iov_iter *to) {
@@ -31,13 +32,7 @@ inline ssize_t buse_send_command(struct buse_connection *connection, struct buse
     if (request->is_data_mapped)
         header.data_address = connection->vma->vm_start;
 
-    switch (request->type) {
-        case BUSE_READ:
-        case BUSE_WRITE:
-            return copy_to_iter(&header, sizeof(header), to);
-        default:
-            return -EINVAL;
-    }
+    return copy_to_iter(&header, sizeof(header), to);
 }
 
 #endif

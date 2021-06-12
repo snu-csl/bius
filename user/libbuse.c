@@ -41,11 +41,70 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
+static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, const struct buse_operations *ops) {
+    switch (k2u->opcode) {
+        case BUSE_READ:
+            if (ops->read)
+                return ops->read((void *)k2u->data_address, k2u->offset, k2u->length);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_WRITE:
+            if (ops->write)
+                return ops->write((void *)k2u->data_address, k2u->offset, k2u->length);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_DISCARD:
+            if (ops->discard)
+                return ops->discard(k2u->offset, k2u->length);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_FLUSH:
+            if (ops->flush)
+                return ops->flush();
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_OPEN:
+            if (ops->open_zone)
+                return ops->open_zone(k2u->offset);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_CLOSE:
+            if (ops->close_zone)
+                return ops->close_zone(k2u->offset);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_FINISH:
+            if (ops->finish_zone)
+                return ops->finish_zone(k2u->offset);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_APPEND:
+            if (ops->append_zone)
+                return ops->append_zone((void *)k2u->data_address, k2u->offset, k2u->length);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_RESET:
+            if (ops->reset_zone)
+                return ops->reset_zone(k2u->offset);
+            else
+                return BLK_STS_NOTSUPP;
+        case BUSE_ZONE_RESET_ALL:
+            if (ops->reset_all_zone)
+                return ops->reset_all_zone();
+            else
+                return BLK_STS_NOTSUPP;
+        default:
+            fprintf(stderr, "Unknown opcode: %d\n", k2u->opcode);
+            return BLK_STS_NOTSUPP;
+    }
+}
+
 static void *thread_main(void *arg) {
     const struct buse_options *options = arg;
     const struct buse_operations *ops = options->operations;
     struct buse_k2u_header k2u;
     struct buse_u2k_header u2k;
+    struct blk_zone *zone_info = NULL;
     int buse_char_dev = open("/dev/buse", O_RDWR);
     if (buse_char_dev < 0) {
         fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
@@ -65,22 +124,22 @@ static void *thread_main(void *arg) {
             exit(1);
 
         u2k.id = k2u.id;
-
-        switch (k2u.opcode) {
-            case BUSE_READ:
-                u2k.reply = ops->read((void *)k2u.data_address, k2u.offset, k2u.length);
-                break;
-            case BUSE_WRITE:
-                u2k.reply = ops->write((void *)k2u.data_address, k2u.offset, k2u.length);
-                break;
-            default:
-                fprintf(stderr, "Unknown opcode: %d\n", k2u.opcode);
-                exit(1);
+        if (is_blk_request(k2u.opcode)) {
+            u2k.reply = handle_blk_command(&k2u, ops);
+        } else if (k2u.opcode == BUSE_REPORT_ZONES && ops->report_zones) {
+            zone_info = malloc(sizeof(struct blk_zone) * k2u.length);
+            u2k.reply = ops->report_zones(k2u.offset, (int)k2u.length, zone_info) * sizeof(struct blk_zone);
+            u2k.user_data_address = (uint64_t)zone_info;
         }
 
         result = write_command(buse_char_dev, &u2k);
         if (result < 0)
             exit(1);
+
+        if (zone_info) {
+            free(zone_info);
+            zone_info = NULL;
+        }
     }
 
     return NULL;

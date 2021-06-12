@@ -9,6 +9,33 @@
 atomic64_t next_request_id = ATOMIC64_INIT(0);
 struct buse_block_device *only_device = NULL;
 
+static inline buse_req_t to_buse_request(unsigned int op) {
+    switch (op) {
+        case REQ_OP_READ:
+            return BUSE_READ;
+        case REQ_OP_WRITE:
+            return BUSE_WRITE;
+        case REQ_OP_FLUSH:
+            return BUSE_FLUSH;
+        case REQ_OP_DISCARD:
+            return BUSE_DISCARD;
+        case REQ_OP_ZONE_OPEN:
+        case REQ_OP_ZONE_CLOSE:
+        case REQ_OP_ZONE_FINISH:
+        case REQ_OP_ZONE_APPEND:
+        case REQ_OP_ZONE_RESET:
+        case REQ_OP_ZONE_RESET_ALL:
+            return (buse_req_t)op;
+        default:
+            return BUSE_INVALID_OP;
+    }
+}
+
+static void buse_blk_request_end(struct buse_request *request) {
+    struct request *rq = blk_mq_rq_from_pdu(request);
+    blk_mq_end_request(rq, request->blk_result);
+}
+
 static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd) {
     struct request *rq = bd->rq;
     struct buse_request *buse_request = blk_mq_rq_to_pdu(rq);
@@ -22,13 +49,20 @@ static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
     }
 
     buse_request->id = atomic64_inc_return(&next_request_id);
-    buse_request->type = rq_data_dir(rq) == WRITE? BUSE_WRITE : BUSE_READ;
+    buse_request->type = to_buse_request(req_op(rq));
     buse_request->pos = pos;
     buse_request->length = blk_rq_bytes(rq);
     buse_request->bio = rq->bio;
     buse_request->is_data_mapped = 0;
+    buse_request->on_request_end = buse_blk_request_end;
 
-    printd("buse: new_request: type = %d, pos = %lld, length = %ld\n", buse_request->type, pos, buse_request->length);
+    printd("buse: new_request: type = %d, op = %d, pos = %lld, length = %ld\n", buse_request->type, req_op(bd->rq), pos, buse_request->length);
+
+    if (unlikely(buse_request->type == BUSE_INVALID_OP)) {
+        printk("buse: unsupported operation: %d\n", req_op(rq));
+        blk_mq_end_request(rq, BLK_STS_NOTSUPP);
+        return BLK_STS_NOTSUPP;
+    }
 
     spin_lock(&only_device->pending_lock);
     list_add_tail(&buse_request->list, &only_device->pending_requests);
@@ -41,7 +75,7 @@ static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
 
 static void buse_complete_rq(struct request *rq) {
     struct buse_request *request = blk_mq_rq_to_pdu(rq);
-    blk_mq_end_request(rq, request->result);
+    blk_mq_end_request(rq, request->int_result);
 }
 
 static const struct blk_mq_ops buse_mq_ops = {
@@ -60,25 +94,70 @@ static void initialize_tag_set(struct blk_mq_tag_set *tag_set) {
     tag_set->driver_data = NULL;
 }
 
-static int buse_open(struct block_device *bdev, fmode_t mode) {
-    return 0;
+static void buse_report_zones_request_end(struct buse_request *request) {
+    up(&request->sem);
 }
 
-static void buse_release(struct gendisk *disk, fmode_t mode) {
-}
+static int buse_report_zones(struct gendisk *disk, sector_t sector, unsigned int nr_zones, report_zones_cb cb, void *data) {
+    struct buse_request request;
+    struct blk_zone *blkz;
+    int result;
 
-static int buse_ioctl(struct block_device *bdev, fmode_t mode, unsigned int cmd, unsigned long arg) {
-    return 0;
+    nr_zones = min_t(unsigned int, nr_zones, BUSE_MAX_ZONES);
+
+    blkz = kvmalloc(sizeof(struct blk_zone) * nr_zones, GFP_KERNEL);
+    if (blkz == NULL)
+        return -ENOMEM;
+
+    request.id = atomic64_inc_return(&next_request_id);
+    request.type = BUSE_REPORT_ZONES;
+    request.pos = sector << SECTOR_SHIFT;
+    request.length = nr_zones;
+    request.data = blkz;
+    request.on_request_end = buse_report_zones_request_end;
+    sema_init(&request.sem, 0);
+
+    spin_lock(&only_device->pending_lock);
+    list_add_tail(&request.list, &only_device->pending_requests);
+    spin_unlock(&only_device->pending_lock);
+
+    wake_up(&only_device->wait_queue);
+
+    result = down_killable(&request.sem);
+    if (result < 0)
+        goto out_free;
+
+    result = request.int_result;
+    if (result < 0)
+        goto out_free;
+
+    nr_zones = result / sizeof(struct blk_zone);
+
+    printd("buse: recevied nr_zones = %u\n", nr_zones);
+    for (int i = 0; i < nr_zones; i++) {
+        printd("buse: zone %i, start = %llu, wp = %llu, len = %llu\n", i, blkz[i].start, blkz[i].wp, blkz[i].len);
+        result = cb(&blkz[i], i, data);
+        if (result) {
+            printk("buse: report_zones_cb failed: %d\n", result);
+            goto out_free;
+        }
+    }
+
+    result = nr_zones;
+
+out_free:
+    kvfree(blkz);
+
+    return result;
 }
 
 struct block_device_operations buse_fops = {
     .owner = THIS_MODULE,
-    .open = buse_open,
-    .release = buse_release,
-    .ioctl = buse_ioctl,
+    .report_zones = buse_report_zones,
 };
 
 int create_block_device(const char *name) {
+    const unsigned long device_size = 1lu * 1024 * 1024 * 1024;
     struct buse_block_device *buse_device;
     int ret = 0;
 
@@ -122,8 +201,9 @@ int create_block_device(const char *name) {
     blk_queue_max_discard_sectors(buse_device->disk->queue, 0);
     blk_queue_max_segment_size(buse_device->disk->queue, BUSE_MAX_SEGMENT_SIZE);
     blk_queue_max_segments(buse_device->disk->queue, BUSE_MAX_SEGMENTS);
-    blk_queue_max_hw_sectors(buse_device->disk->queue, 65536);
-    buse_device->disk->queue->limits.max_sectors = 256;
+    blk_queue_max_hw_sectors(buse_device->disk->queue, BUSE_MAX_ZONE_SECTORS);
+    blk_queue_chunk_sectors(buse_device->disk->queue, BUSE_MAX_ZONE_SECTORS);
+    blk_queue_dma_alignment(buse_device->disk->queue, PAGE_SIZE - 1);
 
     strncpy(buse_device->disk->disk_name, name, DISK_NAME_LEN);
     buse_device->disk->major = buse_device->major;
@@ -132,7 +212,15 @@ int create_block_device(const char *name) {
     buse_device->disk->private_data = NULL;
 
     /* TODO: FIX HERE */
-    set_capacity(buse_device->disk, 2 * 1024 * 1024 /* 1GB */);
+    set_capacity(buse_device->disk, device_size / SECTOR_SIZE);
+
+    blk_queue_set_zoned(buse_device->disk, BLK_ZONED_HM);
+    blk_queue_flag_set(QUEUE_FLAG_ZONE_RESETALL, buse_device->q);
+    blk_queue_required_elevator_features(buse_device->q, ELEVATOR_F_ZBD_SEQ_WRITE);
+
+    blk_queue_max_zone_append_sectors(buse_device->q, BUSE_MAX_ZONE_SECTORS);
+    blk_queue_max_open_zones(buse_device->q, 65536);
+    blk_queue_max_active_zones(buse_device->q, 65536);
 
     add_disk(buse_device->disk);
 
@@ -174,4 +262,18 @@ void remove_block_device(const char *name) {
     blk_mq_free_tag_set(&buse_device->tag_set);
     put_disk(buse_device->disk);
     unregister_blkdev(buse_device->major, name);
+}
+
+int buse_revalidate(struct buse_block_device *device) {
+    int ret;
+
+    device->validated = 1;
+
+    ret = blk_revalidate_disk_zones(device->disk, NULL);
+    if (ret) {
+        printk("buse: blk_revalidate_disk_zones = %d\n", ret);
+        return ret;
+    }
+
+    return 0;
 }

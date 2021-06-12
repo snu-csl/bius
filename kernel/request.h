@@ -4,15 +4,8 @@
 #include <linux/list.h>
 #include <linux/blk_types.h>
 #include <linux/blk-mq.h>
-
-typedef enum buse_req {
-    BUSE_CONNECT = 0,
-    BUSE_DISCONNECT = 1,
-    BUSE_READ = 2,
-    BUSE_WRITE = 3,
-    BUSE_DISCARD = 4,
-    BUSE_IOCTL = 5,
-} buse_req_t;
+#include <linux/semaphore.h>
+#include "request_type.h"
 
 struct buse_request {
     uint64_t id;
@@ -20,15 +13,29 @@ struct buse_request {
     loff_t pos;
     size_t length;
     struct list_head list;
-    struct bio *bio;
-    int is_data_mapped;
-    blk_status_t result;
+    union {
+        struct {
+            struct bio *bio;
+            int is_data_mapped;
+            blk_status_t blk_result;
+        };
+        struct {
+            void *data;
+            struct semaphore sem;
+            int int_result;
+        };
+    };
+    void (*on_request_end)(struct buse_request *);
 };
 
-static inline void end_request(struct buse_request *request, blk_status_t result) {
-    struct request *rq = blk_mq_rq_from_pdu(request);
-    request->result = result;
-    blk_mq_complete_request(rq);
+static inline void end_blk_request(struct buse_request *request, blk_status_t result) {
+    request->blk_result = result;
+    request->on_request_end(request);
+}
+
+static inline void end_request_int(struct buse_request *request, int result) {
+    request->int_result = result;
+    request->on_request_end(request);
 }
 
 static inline struct buse_request *get_request_by_id(struct list_head *list, uint64_t id) {

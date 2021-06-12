@@ -3,15 +3,7 @@
 
 #include <stdint.h>
 #include <sys/types.h>
-
-typedef enum buse_req {
-    BUSE_CONNECT = 0,
-    BUSE_DISCONNECT = 1,
-    BUSE_READ = 2,
-    BUSE_WRITE = 3,
-    BUSE_DISCARD = 4,
-    BUSE_IOCTL = 5,
-} buse_req_t;
+#include "request_type.h"
 
 struct buse_k2u_header {
     uint64_t id;
@@ -24,6 +16,7 @@ struct buse_k2u_header {
 struct buse_u2k_header {
     uint64_t id;
     ssize_t reply;
+    uint64_t user_data_address;
 };
 
 #endif

@@ -14,17 +14,25 @@ unsigned long zero_pages_pfn = 0;
 
 static int buse_dev_open(struct inode *inode, struct file *file) {
     struct buse_connection *connection;
+    struct buse_block_device *device;
 
     if (only_device == NULL)
         return -EIO;
+    device = only_device;
 
     connection = kmalloc(sizeof(struct buse_connection), GFP_KERNEL);
     if (connection == NULL)
         return -ENOMEM;
 
     init_buse_connection(connection);
-    connection->block_dev = only_device;
+    connection->block_dev = device;
     file->private_data = connection;
+
+    spin_lock(&device->connection_lock);
+    device->num_connection++;
+    if (!device->validated && device->num_connection >= 2)
+        buse_revalidate(device);
+    spin_unlock(&device->connection_lock);
 
     return 0;
 }
@@ -60,11 +68,13 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
 
     printd("buse: sending request: id = %llu, type = %d, pos = %lld, length = %lu\n", request->id, request->type, request->pos, request->length);
 
-    ret = buse_map_data(request, connection);
-    if (ret < 0) {
-        printk("buse: buse_map_data failed: %ld\n", ret);
-        end_request(request, BLK_STS_IOERR);
-        return ret;
+    if (is_blk_request(request->type) && request->length > 0) {
+        ret = buse_map_data(request, connection);
+        if (ret < 0) {
+            printk("buse: buse_map_data failed: %ld\n", ret);
+            end_blk_request(request, BLK_STS_IOERR);
+            return ret;
+        }
     }
 
     ret = buse_send_command(connection, request, to);
@@ -110,8 +120,24 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 
     printd("buse: received response: id = %llu, reply = %ld\n", header.id, header.reply);
 
-    buse_unmap_data(request, connection);
-    end_request(request, BLK_STS_OK);
+    if (is_blk_request(request->type)) {
+        buse_unmap_data(request, connection);
+        end_blk_request(request, header.reply);
+    } else {
+        if (header.reply <= 0) {
+            end_request_int(request, header.reply);
+        } else {
+            void __user *data = (void __user *)header.user_data_address;
+            unsigned long result = copy_from_user(request->data, data, header.reply);
+
+            if (unlikely(result > 0)) {
+                printk("buse: copy_from_user failed: %lu\n", result);
+                end_request_int(request, -EINVAL);
+            } else {
+                end_request_int(request, header.reply);
+            }
+        }
+    }
 
     return total_written;
 }
@@ -121,7 +147,7 @@ static int buse_dev_release(struct inode *inode, struct file *file) {
     struct buse_request *request;
 
     list_for_each_entry(request, &connection->waiting_requests, list) {
-        end_request(request, BLK_STS_IOERR);
+        end_blk_request(request, BLK_STS_IOERR);
     }
 
     kfree(connection);
