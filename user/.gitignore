@@ -54,3 +54,4 @@ dkms.conf
 # Executables
 blktest
 ramdisk
+passthrough
