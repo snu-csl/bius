@@ -53,7 +53,7 @@ static blk_status_t ramdisk_read(void *data, off64_t offset, size_t length) {
     return BLK_STS_OK;
 }
 
-static blk_status_t ramdisk_write_common(const void *data, off64_t offset, size_t length, bool append) {
+static blk_status_t ramdisk_write_common(const void *data, off64_t offset, size_t length, off64_t *out_written_position, bool append) {
     blk_status_t result = BLK_STS_OK;
     int zone = zone_number(offset);
 
@@ -61,6 +61,8 @@ static blk_status_t ramdisk_write_common(const void *data, off64_t offset, size_
 
     if (append) {
         offset = zone_info[zone].wp * SECTOR_SIZE;
+        if (out_written_position)
+            *out_written_position = offset;
     } else if (zone_info[zone].wp * SECTOR_SIZE != offset) {
         result = BLK_STS_IOERR;
         goto out_unlock;
@@ -100,7 +102,7 @@ out_unlock:
 }
 
 static blk_status_t ramdisk_write(const void *data, off64_t offset, size_t length) {
-    return ramdisk_write_common(data, offset, length, false);
+    return ramdisk_write_common(data, offset, length, NULL, false);
 }
 
 static blk_status_t ramdisk_discard(off64_t offset, size_t length) {
@@ -199,8 +201,8 @@ static blk_status_t ramdisk_finish_zone(off64_t offset) {
     return result;
 }
 
-static blk_status_t ramdisk_append_zone(const void *data, off64_t offset, size_t length) {
-    return ramdisk_write_common(data, offset, length, true);
+static blk_status_t ramdisk_append_zone(const void *data, off64_t offset, size_t length, off64_t *out_written_position) {
+    return ramdisk_write_common(data, offset, length, out_written_position, true);
 }
 
 static blk_status_t ramdisk_reset_zone(off64_t offset) {

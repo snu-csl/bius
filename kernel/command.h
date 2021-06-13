@@ -19,7 +19,7 @@ struct buse_k2u_header {
 struct buse_u2k_header {
     uint64_t id;
     ssize_t reply;
-    uint64_t user_data_address;
+    uint64_t user_data;
 };
 
 inline ssize_t buse_send_command(struct buse_connection *connection, struct buse_request *request, struct iov_iter *to) {

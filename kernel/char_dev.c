@@ -134,12 +134,16 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 
     if (is_blk_request(request->type)) {
         buse_unmap_data(request, connection);
+
+        if (request->type == BUSE_ZONE_APPEND)
+            request->pos = (loff_t)header.user_data;
+
         end_blk_request(request, header.reply);
     } else {
         if (header.reply <= 0) {
             end_request_int(request, header.reply);
         } else {
-            void __user *data = (void __user *)header.user_data_address;
+            void __user *data = (void __user *)header.user_data;
             unsigned long result = copy_from_user(request->data, data, header.reply);
 
             if (unlikely(result > 0)) {

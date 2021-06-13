@@ -45,9 +45,10 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
-static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u_header *k2u, const struct buse_operations *ops) {
+static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u_header *k2u, const struct buse_operations *ops, unsigned long *out_user_data) {
     unsigned long *datamap_list = (unsigned long *)k2u->mapping_data;
     off64_t offset = k2u->offset;
+    bool first_call = true;
 
     for (int i = 0; datamap_list[i * 3] != 0; i++) {
         void *data_address = (void *)(datamap_list[i * 3] + datamap_list[i * 3 + 1]);
@@ -69,7 +70,7 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u
                 break;
              case BUSE_ZONE_APPEND:
                 if (ops->append_zone)
-                    result = ops->append_zone(data_address, offset, segment_size);
+                    result = ops->append_zone(data_address, offset, segment_size, first_call? (off64_t *)out_user_data : NULL);
                 else
                     return BLK_STS_NOTSUPP;
                 break;
@@ -82,14 +83,15 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u
             return result;
 
         offset += segment_size;
+        first_call = false;
     }
 
     return BLK_STS_OK;
 }
 
-static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, const struct buse_operations *ops) {
+static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, const struct buse_operations *ops, unsigned long *out_user_data) {
     if (k2u->data_map_type == BUSE_DATAMAP_LIST)
-        return handle_blk_command_with_datamap_list(k2u, ops);
+        return handle_blk_command_with_datamap_list(k2u, ops, out_user_data);
 
     switch (k2u->opcode) {
         case BUSE_READ:
@@ -129,7 +131,7 @@ static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, cons
                 return BLK_STS_NOTSUPP;
         case BUSE_ZONE_APPEND:
             if (ops->append_zone)
-                return ops->append_zone((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
+                return ops->append_zone((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length, (off64_t *)out_user_data);
             else
                 return BLK_STS_NOTSUPP;
         case BUSE_ZONE_RESET:
@@ -174,11 +176,14 @@ static void *thread_main(void *arg) {
 
         u2k.id = k2u.id;
         if (is_blk_request(k2u.opcode)) {
-            u2k.reply = handle_blk_command(&k2u, ops);
+            unsigned long user_data = 0;
+
+            u2k.reply = handle_blk_command(&k2u, ops, &user_data);
+            u2k.user_data = user_data;
         } else if (k2u.opcode == BUSE_REPORT_ZONES && ops->report_zones) {
             zone_info = malloc(sizeof(struct blk_zone) * k2u.length);
             u2k.reply = ops->report_zones(k2u.offset, (int)k2u.length, zone_info) * sizeof(struct blk_zone);
-            u2k.user_data_address = (uint64_t)zone_info;
+            u2k.user_data = (uint64_t)zone_info;
         }
 
         result = write_command(buse_char_dev, &u2k);

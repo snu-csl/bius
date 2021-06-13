@@ -137,7 +137,7 @@ static blk_status_t passthrough_finish_zone(off64_t offset) {
     return BLK_STS_IOERR;
 }
 
-static blk_status_t passthrough_append_zone(const void *data, off64_t offset, size_t length) {
+static blk_status_t passthrough_append_zone(const void *data, off64_t offset, size_t length, off64_t *out_written_position) {
     return BLK_STS_IOERR;
 }
 

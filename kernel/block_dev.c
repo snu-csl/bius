@@ -33,6 +33,10 @@ static inline buse_req_t to_buse_request(unsigned int op) {
 
 static void buse_blk_request_end(struct buse_request *request) {
     struct request *rq = blk_mq_rq_from_pdu(request);
+
+    if (request->type == BUSE_ZONE_APPEND)
+        rq->bio->bi_iter.bi_sector = request->pos / SECTOR_SIZE;
+
     blk_mq_end_request(rq, request->blk_result);
 }
 

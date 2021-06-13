@@ -17,7 +17,7 @@ struct buse_operations {
     blk_status_t (*open_zone)(off64_t offset);
     blk_status_t (*close_zone)(off64_t offset);
     blk_status_t (*finish_zone)(off64_t offset);
-    blk_status_t (*append_zone)(const void *data, off64_t offset, size_t length);
+    blk_status_t (*append_zone)(const void *data, off64_t offset, size_t length, off64_t *out_written_position);
     blk_status_t (*reset_zone)(off64_t offset);
     blk_status_t (*reset_all_zone)();
 };
