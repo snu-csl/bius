@@ -36,7 +36,7 @@ static void initialize_zone_info(bool hold_lock) {
         zone_info[i].capacity = ZONE_SIZE / SECTOR_SIZE;
 
         if (i == num_zones - 1) {
-            zone_info[i].capacity = zone_info[i].len = disk_size / SECTOR_SIZE - zone_info[i].start;
+            zone_info[i].capacity = disk_size / SECTOR_SIZE - zone_info[i].start;
         }
 
         if (hold_lock)
