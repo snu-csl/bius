@@ -125,30 +125,6 @@ static int passthrough_report_zones(off64_t offset, int nr_zones, struct blk_zon
     return nr_zones;
 }
 
-static blk_status_t passthrough_open_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t passthrough_close_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t passthrough_finish_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t passthrough_append_zone(const void *data, off64_t offset, size_t length, off64_t *out_written_position) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t passthrough_reset_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t passthrough_reset_all_zone() {
-    return BLK_STS_IOERR;
-}
-
 int main(int argc, char *argv[]) {
     struct buse_operations operations = {
         .read = passthrough_read,
@@ -156,12 +132,6 @@ int main(int argc, char *argv[]) {
         .discard = passthrough_discard,
         .flush = passthrough_flush,
         .report_zones = passthrough_report_zones,
-        .open_zone = passthrough_open_zone,
-        .close_zone = passthrough_close_zone,
-        .finish_zone = passthrough_finish_zone,
-        .append_zone = passthrough_append_zone,
-        .reset_zone = passthrough_reset_zone,
-        .reset_all_zone = passthrough_reset_all_zone,
     };
     struct buse_options options = {
         .operations = &operations,

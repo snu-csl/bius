@@ -71,30 +71,6 @@ static int ramdisk_report_zones(off64_t offset, int nr_zones, struct blk_zone *z
     return nr_zones;
 }
 
-static blk_status_t ramdisk_open_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t ramdisk_close_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t ramdisk_finish_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t ramdisk_append_zone(const void *data, off64_t offset, size_t length, off64_t *out_written_position) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t ramdisk_reset_zone(off64_t offset) {
-    return BLK_STS_IOERR;
-}
-
-static blk_status_t ramdisk_reset_all_zone() {
-    return BLK_STS_IOERR;
-}
-
 int main(int argc, char *argv[]) {
     struct buse_operations operations = {
         .read = ramdisk_read,
@@ -102,12 +78,6 @@ int main(int argc, char *argv[]) {
         .discard = ramdisk_discard,
         .flush = ramdisk_flush,
         .report_zones = ramdisk_report_zones,
-        .open_zone = ramdisk_open_zone,
-        .close_zone = ramdisk_close_zone,
-        .finish_zone = ramdisk_finish_zone,
-        .append_zone = ramdisk_append_zone,
-        .reset_zone = ramdisk_reset_zone,
-        .reset_all_zone = ramdisk_reset_all_zone,
     };
     struct buse_options options = {
         .operations = &operations,
