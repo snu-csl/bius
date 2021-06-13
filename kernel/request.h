@@ -7,6 +7,12 @@
 #include <linux/semaphore.h>
 #include "request_type.h"
 
+typedef enum data_map_type {
+    BUSE_DATAMAP_UNMAPPED = 0,
+    BUSE_DATAMAP_SIMPLE = 1,
+    BUSE_DATAMAP_LIST = 2,
+} data_map_type_t;
+
 struct buse_request {
     uint64_t id;
     buse_req_t type;
@@ -16,7 +22,9 @@ struct buse_request {
     union {
         struct {
             struct bio *bio;
-            int is_data_mapped;
+            /* Map type specific data. Offset of first page for simple, list address for list */
+            unsigned long map_data;
+            data_map_type_t map_type;
             blk_status_t blk_result;
         };
         struct {

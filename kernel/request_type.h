@@ -20,8 +20,12 @@ typedef enum buse_req {
 
 #define BUSE_INVALID_OP ((buse_req_t)-1)
 
-static inline int is_blk_request(buse_req_t type) {
+static inline bool is_blk_request(buse_req_t type) {
     return type != BUSE_REPORT_ZONES;
-} 
+}
+
+static inline bool request_may_have_data(buse_req_t type) {
+    return type == BUSE_READ || type == BUSE_WRITE || type == BUSE_ZONE_APPEND;
+}
 
 #endif

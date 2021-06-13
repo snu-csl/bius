@@ -9,6 +9,8 @@
 #include "config.h"
 #include "request.h"
 
+#define BUSE_NUM_RESERVED_PAGES (BUSE_MAX_SEGMENTS + 1)
+
 struct buse_connection {
     struct buse_block_device *block_dev;
     /* List of requests waiting for userspace response */
@@ -16,6 +18,8 @@ struct buse_connection {
     spinlock_t waiting_lock;
     struct vm_area_struct *vma;
     pte_t *ptes[BUSE_PTES_PER_COMMAND];
+    char *reserved_pages;
+    unsigned long reserved_pages_pfn;
 };
 
 static inline struct buse_connection *get_buse_connection(struct file *file) {

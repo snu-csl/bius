@@ -11,7 +11,11 @@
 #include "libbuse.h"
 #include "utils.h"
 
-#define DATA_MAP_AREA_SIZE (128 * 1024)
+#define PAGE_SIZE 4096
+#define BUSE_MAX_SEGMENT_SIZE (128 * 1024)
+#define BUSE_MAX_SEGMENTS 24
+#define BUSE_MAX_SIZE_PER_COMMAND (BUSE_MAX_SEGMENT_SIZE * BUSE_MAX_SEGMENTS)
+#define DATA_MAP_AREA_SIZE (BUSE_MAX_SIZE_PER_COMMAND + PAGE_SIZE)
 
 static inline int read_command(int fd, struct buse_k2u_header *header) {
     ssize_t result = read(fd, header, sizeof(struct buse_k2u_header));
@@ -41,16 +45,61 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
+static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u_header *k2u, const struct buse_operations *ops) {
+    unsigned long *datamap_list = (unsigned long *)k2u->mapping_data;
+    off64_t offset = k2u->offset;
+
+    for (int i = 0; datamap_list[i * 3] != 0; i++) {
+        void *data_address = (void *)(datamap_list[i * 3] + datamap_list[i * 3 + 1]);
+        size_t segment_size = datamap_list[i * 3 + 2];
+        blk_status_t result;
+
+        switch (k2u->opcode) {
+            case BUSE_READ:
+                if (ops->read)
+                    result = ops->read(data_address, offset, segment_size);
+                else
+                    return BLK_STS_NOTSUPP;
+                break;
+            case BUSE_WRITE:
+                if (ops->write)
+                    result = ops->write(data_address, offset, segment_size);
+                else
+                    return BLK_STS_NOTSUPP;
+                break;
+             case BUSE_ZONE_APPEND:
+                if (ops->append_zone)
+                    result = ops->append_zone(data_address, offset, segment_size);
+                else
+                    return BLK_STS_NOTSUPP;
+                break;
+             default:
+                fprintf(stderr, "Unknown opcode at handle_blk_command_with_datamap_list: %d\n", k2u->opcode);
+                return BLK_STS_NOTSUPP;
+        }
+
+        if (result != BLK_STS_OK)
+            return result;
+
+        offset += segment_size;
+    }
+
+    return BLK_STS_OK;
+}
+
 static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, const struct buse_operations *ops) {
+    if (k2u->data_map_type == BUSE_DATAMAP_LIST)
+        return handle_blk_command_with_datamap_list(k2u, ops);
+
     switch (k2u->opcode) {
         case BUSE_READ:
             if (ops->read)
-                return ops->read((void *)k2u->data_address, k2u->offset, k2u->length);
+                return ops->read((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
         case BUSE_WRITE:
             if (ops->write)
-                return ops->write((void *)k2u->data_address, k2u->offset, k2u->length);
+                return ops->write((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
         case BUSE_DISCARD:
@@ -80,7 +129,7 @@ static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, cons
                 return BLK_STS_NOTSUPP;
         case BUSE_ZONE_APPEND:
             if (ops->append_zone)
-                return ops->append_zone((void *)k2u->data_address, k2u->offset, k2u->length);
+                return ops->append_zone((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
         case BUSE_ZONE_RESET:
@@ -94,7 +143,7 @@ static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, cons
             else
                 return BLK_STS_NOTSUPP;
         default:
-            fprintf(stderr, "Unknown opcode: %d\n", k2u->opcode);
+            fprintf(stderr, "Unknown opcode at handle_blk_command: %d\n", k2u->opcode);
             return BLK_STS_NOTSUPP;
     }
 }

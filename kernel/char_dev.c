@@ -9,12 +9,13 @@
 #include "data_mapping.h"
 #include "utils.h"
 
-void *zero_pages = NULL;
-unsigned long zero_pages_pfn = 0;
+void *zero_page = NULL;
+unsigned long zero_page_pfn = 0;
 
 static int buse_dev_open(struct inode *inode, struct file *file) {
     struct buse_connection *connection;
     struct buse_block_device *device;
+    int error = 0;
 
     if (only_device == NULL)
         return -EIO;
@@ -28,6 +29,13 @@ static int buse_dev_open(struct inode *inode, struct file *file) {
     connection->block_dev = device;
     file->private_data = connection;
 
+    connection->reserved_pages = kmalloc(PAGE_SIZE * BUSE_NUM_RESERVED_PAGES, GFP_KERNEL);
+    if (connection->reserved_pages == NULL) {
+        error = -ENOMEM;
+        goto out_free;
+    }
+    connection->reserved_pages_pfn = PHYS_PFN(virt_to_phys(connection->reserved_pages));
+
     spin_lock(&device->connection_lock);
     device->num_connection++;
     if (!device->validated && device->num_connection >= 2)
@@ -35,6 +43,10 @@ static int buse_dev_open(struct inode *inode, struct file *file) {
     spin_unlock(&device->connection_lock);
 
     return 0;
+
+out_free:
+    kfree(connection);
+    return error;
 }
 
 static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
@@ -68,7 +80,7 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
 
     printd("buse: sending request: id = %llu, type = %d, pos = %lld, length = %lu\n", request->id, request->type, request->pos, request->length);
 
-    if (is_blk_request(request->type) && request->length > 0) {
+    if (request_may_have_data(request->type) && request->length > 0) {
         ret = buse_map_data(request, connection);
         if (ret < 0) {
             printk("buse: buse_map_data failed: %ld\n", ret);
@@ -150,6 +162,7 @@ static int buse_dev_release(struct inode *inode, struct file *file) {
         end_blk_request(request, BLK_STS_IOERR);
     }
 
+    kfree(connection->reserved_pages);
     kfree(connection);
     return 0;
 }
@@ -198,16 +211,16 @@ static struct miscdevice buse_device = {
 };
 
 int __init buse_dev_init(void) {
-    zero_pages = kzalloc(BUSE_MAX_SIZE_PER_COMMAND, GFP_KERNEL);
-    if (!zero_pages)
+    zero_page = kzalloc(PAGE_SIZE, GFP_KERNEL);
+    if (!zero_page)
         return -ENOMEM;
-    zero_pages_pfn = PHYS_PFN(virt_to_phys(zero_pages));
+    zero_page_pfn = PHYS_PFN(virt_to_phys(zero_page));
 
     return misc_register(&buse_device);
 }
 
 void buse_dev_exit(void) {
     misc_deregister(&buse_device);
-    if (zero_pages)
-        kfree(zero_pages);
+    if (zero_page)
+        kfree(zero_page);
 }

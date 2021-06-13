@@ -3,7 +3,14 @@
 
 #include <stdint.h>
 #include <sys/types.h>
-#include "request_type.h"
+#include <stdbool.h>
+#include "../kernel/request_type.h"
+
+typedef enum data_map_type {
+    BUSE_DATAMAP_UNMAPPED = 0,
+    BUSE_DATAMAP_SIMPLE = 1,
+    BUSE_DATAMAP_LIST = 2,
+} data_map_type_t;
 
 struct buse_k2u_header {
     uint64_t id;
@@ -11,6 +18,8 @@ struct buse_k2u_header {
     uint64_t offset;
     uint64_t length;
     uint64_t data_address;
+    uint64_t mapping_data;
+    int32_t data_map_type;
 };
 
 struct buse_u2k_header {

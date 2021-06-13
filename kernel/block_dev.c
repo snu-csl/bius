@@ -53,7 +53,7 @@ static blk_status_t buse_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
     buse_request->pos = pos;
     buse_request->length = blk_rq_bytes(rq);
     buse_request->bio = rq->bio;
-    buse_request->is_data_mapped = 0;
+    buse_request->map_type = BUSE_DATAMAP_UNMAPPED;
     buse_request->on_request_end = buse_blk_request_end;
 
     printd("buse: new_request: type = %d, op = %d, pos = %lld, length = %ld\n", buse_request->type, req_op(bd->rq), pos, buse_request->length);

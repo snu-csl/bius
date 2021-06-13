@@ -7,8 +7,8 @@
 
 #define BUSE_MINOR MISC_DYNAMIC_MINOR
 
-extern void *zero_pages;
-extern unsigned long zero_pages_pfn;
+extern void *zero_page;
+extern unsigned long zero_page_pfn;
 
 int __init buse_dev_init(void);
 void buse_dev_exit(void);
