@@ -79,7 +79,7 @@ static inline int write_data(int fd, const char *buffer, size_t size) {
 static void *thread_main(void *arg) {
     const struct buse_options *options = arg;
     const struct buse_operations *ops = options->operations;
-    char *buffer = aligned_alloc(4096, BUSE_MAX_SEGMENT_SIZE * BUSE_MAX_SEGMENTS);
+    char *buffer = aligned_alloc(4096, BUSE_MAX_SIZE_PER_COMMAND);
     struct buse_k2u_header k2u;
     struct buse_u2k_header u2k;
     int buse_char_dev = open("/dev/buse", O_RDWR);

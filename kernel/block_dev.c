@@ -119,9 +119,10 @@ int create_block_device(const char *name) {
     buse_device->disk->queue->limits.discard_granularity = 0;
     buse_device->disk->queue->limits.discard_alignment = 0;
     blk_queue_max_discard_sectors(buse_device->disk->queue, 0);
-    blk_queue_max_segment_size(buse_device->disk->queue, BUSE_MAX_SEGMENT_SIZE);
     blk_queue_max_segments(buse_device->disk->queue, BUSE_MAX_SEGMENTS);
-    blk_queue_max_hw_sectors(buse_device->disk->queue, 65536);
+    buse_device->disk->queue->limits.max_dev_sectors = BUSE_MAX_SIZE_PER_COMMAND / SECTOR_SIZE;
+    blk_queue_max_hw_sectors(buse_device->disk->queue, BUSE_MAX_SIZE_PER_COMMAND / SECTOR_SIZE);
+    blk_queue_chunk_sectors(buse_device->disk->queue, BUSE_MAX_SIZE_PER_COMMAND / SECTOR_SIZE);
 
     strncpy(buse_device->disk->disk_name, name, DISK_NAME_LEN);
     buse_device->disk->major = buse_device->major;
