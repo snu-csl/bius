@@ -77,6 +77,7 @@ struct block_device_operations buse_fops = {
 };
 
 int create_block_device(const char *name) {
+    const unsigned long device_size = 1lu * 1024 * 1024 * 1024;
     struct buse_block_device *buse_device;
     int ret = 0;
 
@@ -121,7 +122,6 @@ int create_block_device(const char *name) {
     blk_queue_max_segment_size(buse_device->disk->queue, BUSE_MAX_SEGMENT_SIZE);
     blk_queue_max_segments(buse_device->disk->queue, BUSE_MAX_SEGMENTS);
     blk_queue_max_hw_sectors(buse_device->disk->queue, 65536);
-    buse_device->disk->queue->limits.max_sectors = 256;
 
     strncpy(buse_device->disk->disk_name, name, DISK_NAME_LEN);
     buse_device->disk->major = buse_device->major;
@@ -130,7 +130,7 @@ int create_block_device(const char *name) {
     buse_device->disk->private_data = NULL;
 
     /* TODO: FIX HERE */
-    set_capacity(buse_device->disk, 2 * 1024 * 1024 /* 1GB */);
+    set_capacity(buse_device->disk, device_size / SECTOR_SIZE);
 
     add_disk(buse_device->disk);
 
