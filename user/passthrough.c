@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <fcntl.h>
@@ -10,11 +11,35 @@
 static int target_fd;
 
 static ssize_t passthrough_read(void *data, off64_t offset, size_t length) {
-    return pread(target_fd, data, length, offset);
+    size_t total = 0;
+
+    do {
+        ssize_t result = pread(target_fd, data + total, length - total, offset + total);
+        if (result < 0) {
+            fprintf(stderr, "pread failed: %s\n", strerror(errno));
+            return result;
+        }
+
+        total += result;
+    } while (total < length);
+
+    return total;
 }
 
 static ssize_t passthrough_write(const void *data, off64_t offset, size_t length) {
-    return pwrite(target_fd, data, length, offset);
+    size_t total = 0;
+
+    do {
+        ssize_t result = pwrite(target_fd, data + total, length - total, offset + total);
+        if (result < 0) {
+            fprintf(stderr, "pwrite failed: %s\n", strerror(errno));
+            return result;
+        }
+
+        total += result;
+    } while (total < length);
+
+    return total;
 }
 
 int main(int argc, char *argv[]) {

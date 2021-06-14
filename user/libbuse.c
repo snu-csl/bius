@@ -64,10 +64,12 @@ static inline int write_data(int fd, const char *buffer, size_t size) {
         ssize_t written = write(fd, buffer, size - total_written);
         printd("data write: request = %lu, sent = %ld\n", size - total_written, written);
         if (written <= 0) {
-            fprintf(stderr, "Writing failed: %ld\n", written);
+            fprintf(stderr, "Writing failed: %s\n", strerror(errno));
             return -1;
         }
+
         total_written += written;
+        buffer += written;
     }
 
     return total_written;
@@ -76,7 +78,7 @@ static inline int write_data(int fd, const char *buffer, size_t size) {
 static void *thread_main(void *arg) {
     const struct buse_options *options = arg;
     const struct buse_operations *ops = options->operations;
-    char buffer[128 * 1024];
+    char *buffer = aligned_alloc(4096, 128 * 1024);
     struct buse_k2u_header k2u;
     struct buse_u2k_header u2k;
     int buse_char_dev = open("/dev/buse", O_RDWR);
@@ -113,9 +115,9 @@ static void *thread_main(void *arg) {
                 fprintf(stderr, "Unknown opcode: %d\n", k2u.opcode);
                 exit(1);
         }
-
-
     }
+
+    free(buffer);
 
     return NULL;
 }
