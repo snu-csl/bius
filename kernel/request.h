@@ -24,6 +24,7 @@ struct buse_request {
             struct bio *bio;
             /* Map type specific data. Offset of first page for simple, list address for list */
             unsigned long map_data;
+            unsigned long mapped_size;
             data_map_type_t map_type;
             blk_status_t blk_result;
         };

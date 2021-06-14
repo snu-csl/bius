@@ -10,11 +10,9 @@
 #include "command.h"
 #include "libbuse.h"
 #include "utils.h"
+#include "../kernel/config.h"
 
 #define PAGE_SIZE 4096
-#define BUSE_MAX_SEGMENT_SIZE (1 * 1024 * 1024)
-#define BUSE_MAX_SEGMENTS 64
-#define BUSE_MAX_SIZE_PER_COMMAND (BUSE_MAX_SEGMENT_SIZE * BUSE_MAX_SEGMENTS)
 #define DATA_MAP_AREA_SIZE (BUSE_MAX_SIZE_PER_COMMAND + PAGE_SIZE)
 
 static inline int read_command(int fd, struct buse_k2u_header *header) {

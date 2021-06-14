@@ -8,7 +8,7 @@ all: $(EXECUTABLES)
 
 blktest: blktest.c
 
-libbuse.o: libbuse.c libbuse.h command.h utils.h
+libbuse.o: libbuse.c libbuse.h command.h utils.h ../kernel/config.h ../kernel/request_type.h
 
 ramdisk: ramdisk.c libbuse.o
 

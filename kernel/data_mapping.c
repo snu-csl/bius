@@ -129,13 +129,13 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
             segment_end_aligned = true;
         }
     }
-    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, vma->vm_end, PAGE_SHIFT, false);
 
     if (list_entry_index > 1) {
         set_pte_at(vma->vm_mm, user_addr, connection->ptes[user_page_num], pte_mkspecial(pfn_pte(connection->reserved_pages_pfn, vma->vm_page_prot)));
         mapping_list[list_entry_index * 3] = mapping_list[list_entry_index * 3 + 1] = mapping_list[list_entry_index * 3 + 2] = 0;
         request->map_type = BUSE_DATAMAP_LIST;
         request->map_data = user_addr;
+        user_addr += PAGE_SIZE;
     } else if (list_entry_index == 1) {
         request->map_type = BUSE_DATAMAP_SIMPLE;
         request->map_data = mapping_list[1];
@@ -143,20 +143,24 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
         request->map_type = BUSE_DATAMAP_UNMAPPED;
     }
 
+    request->mapped_size = user_addr - vma->vm_start;
+    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, request->mapped_size, PAGE_SHIFT, false);
+
     return 0;
 }
 
 void buse_unmap_data(struct buse_request *request, struct buse_connection *connection) {
     struct vm_area_struct *vma = connection->vma;
     unsigned long addr = vma->vm_start;
+    int mapped_pages = request->mapped_size / PAGE_SIZE;
 
     if (request->map_type == BUSE_DATAMAP_UNMAPPED)
         return;
 
-    for (int i = 0; i < BUSE_PTES_PER_COMMAND; i++, addr += PAGE_SIZE) {
+    for (int i = 0; i < mapped_pages; i++, addr += PAGE_SIZE) {
         set_pte_at(vma->vm_mm, addr, connection->ptes[i], pte_mkspecial(pfn_pte(zero_page_pfn, PAGE_READONLY)));
     }
-    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, vma->vm_end, PAGE_SHIFT, false);
+    flush_tlb_mm_range(vma->vm_mm, vma->vm_start, request->mapped_size, PAGE_SHIFT, false);
 
     request->map_type = BUSE_DATAMAP_UNMAPPED;
 }
