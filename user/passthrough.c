@@ -18,6 +18,9 @@ static ssize_t passthrough_read(void *data, off64_t offset, size_t length) {
         if (result < 0) {
             fprintf(stderr, "pread failed: %s\n", strerror(errno));
             return result;
+        } else if (result == 0) {
+            fprintf(stderr, "pread eof: length = %lu, total = %lu, offset = %lu\n", length, total, offset);
+            return total;
         }
 
         total += result;
@@ -34,6 +37,9 @@ static ssize_t passthrough_write(const void *data, off64_t offset, size_t length
         if (result < 0) {
             fprintf(stderr, "pwrite failed: %s\n", strerror(errno));
             return result;
+        } else if (result == 0) {
+            fprintf(stderr, "pwrite eof: length = %lu, total = %lu, offset = %lu\n", length, total, offset);
+            return total;
         }
 
         total += result;
