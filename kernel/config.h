@@ -12,4 +12,6 @@
 
 #define BUSE_MAX_ZONES (128 * 1024)
 
+#define BUSE_MAP_DATA_THRESHOLD (128 * 1024)
+
 #endif

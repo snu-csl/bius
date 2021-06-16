@@ -59,6 +59,17 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
 
     printd("buse: dev_read: size = %ld\n", user_buffer_size);
 
+    if (connection->sending) {
+        request = connection->sending;
+
+        total_read = buse_send_data(request, user_buffer_size, to);
+
+        if (request_io_done(request))
+            connection->sending = NULL;
+
+        return total_read;
+    }
+
     if (user_buffer_size < sizeof(struct buse_k2u_header))
         return -EINVAL;
 
@@ -81,17 +92,25 @@ static ssize_t buse_dev_read(struct kiocb *iocb, struct iov_iter *to) {
     printd("buse: sending request: id = %llu, type = %d, pos = %lld, length = %lu\n", request->id, request->type, request->pos, request->length);
 
     if (request_may_have_data(request->type) && request->length > 0) {
-        ret = buse_map_data(request, connection);
-        if (ret < 0) {
-            printk("buse: buse_map_data failed: %ld\n", ret);
-            end_blk_request(request, BLK_STS_IOERR);
-            return ret;
+        if (request->length > BUSE_MAP_DATA_THRESHOLD) {
+            ret = buse_map_data(request, connection);
+            if (ret < 0) {
+                printk("buse: buse_map_data failed: %ld\n", ret);
+                end_blk_request(request, BLK_STS_IOERR);
+                return ret;
+            }
+        } else if (request_is_write(request->type)) {
+            request->map_data = request->length;
+            connection->sending = request;
         }
     }
 
     ret = buse_send_command(connection, request, to);
-    if (ret <= 0)
+    if (ret <= 0) {
+        end_blk_request(request, BLK_STS_IOERR);
+        connection->sending = NULL;
         return ret;
+    }
 
     total_read += ret;
 
@@ -127,14 +146,28 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 
     if (!request)
         return -EINVAL;
+    else if (request == connection->sending)
+        connection->sending = NULL;
 
     total_written += ret;
 
     printd("buse: received response: id = %llu, reply = %ld\n", header.id, header.reply);
 
     if (is_blk_request(request->type)) {
-        if (header.reply == BLK_STS_OK && !request_is_write(request->type))
-            buse_copy_in_misaligned_pages(request, connection);
+        if (header.reply == BLK_STS_OK && request->type == BUSE_READ) {
+            if (request->length <= BUSE_MAP_DATA_THRESHOLD) {
+                void __user *data = (void __user *)header.user_data;
+
+                ret = buse_receive_data(request, data);
+                if (ret < 0) {
+                    end_blk_request(request, BLK_STS_IOERR);
+                    return ret;
+                }
+            } else {
+                buse_copy_in_misaligned_pages(request, connection);
+            }
+        }
+
         buse_unmap_data(request, connection);
 
         if (request->type == BUSE_ZONE_APPEND)

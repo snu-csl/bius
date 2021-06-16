@@ -20,6 +20,7 @@ struct buse_connection {
     pte_t *ptes[BUSE_PTES_PER_COMMAND];
     char *reserved_pages;
     unsigned long reserved_pages_pfn;
+    struct buse_request *sending;
 };
 
 static inline struct buse_connection *get_buse_connection(struct file *file) {
@@ -30,6 +31,7 @@ static inline void init_buse_connection(struct buse_connection *connection) {
     INIT_LIST_HEAD(&connection->waiting_requests);
     spin_lock_init(&connection->waiting_lock);
     connection->vma = NULL;
+    connection->sending = NULL;
 }
 
 #endif

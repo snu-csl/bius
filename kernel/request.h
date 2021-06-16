@@ -22,7 +22,7 @@ struct buse_request {
     union {
         struct {
             struct bio *bio;
-            /* Map type specific data. Offset of first page for simple, list address for list */
+            /* Map type specific data. Offset of first page for simple, list address for list, remain length for copy */
             unsigned long map_data;
             unsigned long mapped_size;
             data_map_type_t map_type;
@@ -56,6 +56,15 @@ static inline struct buse_request *get_request_by_id(struct list_head *list, uin
     }
 
     return NULL;
+}
+
+static inline bool request_io_done(struct buse_request *request) {
+    if (unlikely(request->map_type != BUSE_DATAMAP_UNMAPPED)) {
+        printk("buse: request_io_done called on data mapped request\n");
+        return true;
+    }
+
+    return request->map_data == 0;
 }
 
 #endif

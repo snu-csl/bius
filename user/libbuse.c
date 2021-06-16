@@ -43,6 +43,30 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
+static inline void handle_copy_in(int fd, struct buse_k2u_header *header, char *buffer) {
+    if (request_may_have_data(header->opcode) && header->length <= BUSE_MAP_DATA_THRESHOLD) {
+        header->data_map_type = BUSE_DATAMAP_SIMPLE;
+        header->data_address = (unsigned long)buffer;
+        header->mapping_data = 0;
+
+        if (request_is_write(header->opcode)) {
+            const size_t size = header->length;
+            ssize_t total_read = 0;
+
+            while (total_read < size) {
+                ssize_t read_size = read(fd, buffer + total_read, size - total_read);
+
+                if (read_size <= 0) {
+                    fprintf(stderr, "Read failed: read_size = %ld, %s\n", read_size, strerror(errno));
+                    exit(1);
+                }
+
+                total_read += read_size;
+            }
+        }
+    }
+}
+
 static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u_header *k2u, const struct buse_operations *ops, unsigned long *out_user_data) {
     unsigned long *datamap_list = (unsigned long *)k2u->mapping_data;
     off64_t offset = k2u->offset;
@@ -93,6 +117,8 @@ static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, cons
 
     switch (k2u->opcode) {
         case BUSE_READ:
+            if (k2u->length <= BUSE_MAP_DATA_THRESHOLD)
+                *out_user_data = (unsigned long)(k2u->data_address + k2u->mapping_data);
             if (ops->read)
                 return ops->read((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
@@ -165,12 +191,20 @@ static void *thread_main(void *arg) {
         fprintf(stderr, "mmap failed: %s\n", strerror(errno));
         exit(1);
     }
+    char *data_copy_buffer = aligned_alloc(PAGE_SIZE, BUSE_MAP_DATA_THRESHOLD);
+    if (data_copy_buffer == NULL) {
+        fprintf(stderr, "data copy buffer allocation failed: %s\n", strerror(errno));
+        exit(1);
+    }
+
 
     while (1) {
         int result = read_command(buse_char_dev, &k2u);
         printd("command read. id = %lu, opcode = %d, offset = %lu, length = %lu, data_address = %lx\n", k2u.id, k2u.opcode, k2u.offset, k2u.length, k2u.data_address);
         if (result < 0)
             exit(1);
+
+        handle_copy_in(buse_char_dev, &k2u, data_copy_buffer);
 
         u2k.id = k2u.id;
         if (is_blk_request(k2u.opcode)) {
