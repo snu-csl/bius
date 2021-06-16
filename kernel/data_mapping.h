@@ -7,6 +7,7 @@ extern const struct vm_operations_struct buse_vm_operations;
 
 void buse_vm_open(struct vm_area_struct *vma);
 int buse_map_data(struct buse_request *request, struct buse_connection *connection);
+void buse_copy_in_misaligned_pages(struct buse_request *request, struct buse_connection *connection);
 void buse_unmap_data(struct buse_request *request, struct buse_connection *connection);
 
 #endif

@@ -48,9 +48,9 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u
     off64_t offset = k2u->offset;
     bool first_call = true;
 
-    for (int i = 0; datamap_list[i * 3] != 0; i++) {
-        void *data_address = (void *)(datamap_list[i * 3] + datamap_list[i * 3 + 1]);
-        size_t segment_size = datamap_list[i * 3 + 2];
+    for (int i = 0; datamap_list[i * 2] != 0; i++) {
+        void *data_address = (void *)datamap_list[i * 2];
+        size_t segment_size = datamap_list[i * 2 + 1];
         blk_status_t result;
 
         switch (k2u->opcode) {

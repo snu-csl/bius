@@ -28,4 +28,8 @@ static inline bool request_may_have_data(buse_req_t type) {
     return type == BUSE_READ || type == BUSE_WRITE || type == BUSE_ZONE_APPEND;
 }
 
+static inline bool request_is_write(buse_req_t type) {
+    return type == BUSE_WRITE || type == BUSE_ZONE_APPEND;
+}
+
 #endif

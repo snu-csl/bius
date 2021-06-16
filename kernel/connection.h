@@ -9,7 +9,7 @@
 #include "config.h"
 #include "request.h"
 
-#define BUSE_NUM_RESERVED_PAGES (BUSE_MAX_SEGMENTS + 1)
+#define BUSE_NUM_RESERVED_PAGES (BUSE_MAX_SEGMENTS + 2)
 
 struct buse_connection {
     struct buse_block_device *block_dev;

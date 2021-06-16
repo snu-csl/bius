@@ -133,6 +133,8 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
     printd("buse: received response: id = %llu, reply = %ld\n", header.id, header.reply);
 
     if (is_blk_request(request->type)) {
+        if (header.reply == BLK_STS_OK && !request_is_write(request->type))
+            buse_copy_in_misaligned_pages(request, connection);
         buse_unmap_data(request, connection);
 
         if (request->type == BUSE_ZONE_APPEND)

@@ -58,9 +58,11 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
     struct vm_area_struct *vma = connection->vma;
     struct req_iterator iter;
     struct bio_vec bvec;
+    const bool is_write = request_is_write(request->type);
     unsigned long *mapping_list = (unsigned long *)connection->reserved_pages;
+    unsigned long *reserve_mapping_list = (unsigned long *)(connection->reserved_pages + PAGE_SIZE);
     unsigned long list_entry_index = 0;
-    int next_reserved_page_num = 1;
+    int next_reserved_page_num = 2;
     unsigned long user_addr = vma->vm_start;
     int user_page_num = 0;
     bool segment_end_aligned = false;
@@ -77,27 +79,34 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
         unsigned long remain_size = bvec.bv_len;
 
         if (!segment_end_aligned || bvec.bv_offset != 0) {
-            mapping_list[list_entry_index * 3] = user_addr;
-            mapping_list[list_entry_index * 3 + 1] = bvec.bv_offset;
-            mapping_list[list_entry_index * 3 + 2] = 0;
+            mapping_list[list_entry_index * 2] = user_addr + bvec.bv_offset;
+            mapping_list[list_entry_index * 2 + 1] = 0;
             list_entry_index++;
         }
-        mapping_list[list_entry_index * 3 - 1] += remain_size;
+        mapping_list[list_entry_index * 2 - 1] += remain_size;
 
         if (bvec.bv_offset != 0) {  // If start of chunk is not page aligned
+            size_t data_size_in_page = min_t(size_t, PAGE_SIZE - bvec.bv_offset, bvec.bv_len);
             char *reserved = connection->reserved_pages + PAGE_SIZE * next_reserved_page_num;
 
             memset(reserved, 0, PAGE_SIZE);
-            memcpy(reserved + bvec.bv_offset, data_address + bvec.bv_offset, PAGE_SIZE - bvec.bv_offset);
+            if (is_write)
+                memcpy(reserved + bvec.bv_offset, data_address + bvec.bv_offset, data_size_in_page);
 
             set_pte_at(vma->vm_mm, user_addr, connection->ptes[user_page_num], pte_mkspecial(pfn_pte(connection->reserved_pages_pfn + next_reserved_page_num, vma->vm_page_prot)));
+            reserve_mapping_list[next_reserved_page_num] = (unsigned long)data_address;
 
             next_reserved_page_num++;
             user_addr += PAGE_SIZE;
             user_page_num++;
             data_pfn++;
             data_address += PAGE_SIZE;
-            remain_size -= (PAGE_SIZE - bvec.bv_offset);
+            remain_size -= data_size_in_page;
+
+            if (data_size_in_page != PAGE_SIZE - bvec.bv_offset) {
+                segment_end_aligned = false;
+                continue;
+            }
         }
 
         while (remain_size >= PAGE_SIZE) {
@@ -113,9 +122,11 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
             char *reserved = connection->reserved_pages + PAGE_SIZE * next_reserved_page_num;
 
             memset(reserved, 0, PAGE_SIZE);
-            memcpy(reserved, data_address, remain_size);
+            if (is_write)
+                memcpy(reserved, data_address, remain_size);
 
             set_pte_at(vma->vm_mm, user_addr, connection->ptes[user_page_num], pte_mkspecial(pfn_pte(connection->reserved_pages_pfn + next_reserved_page_num, vma->vm_page_prot)));
+            reserve_mapping_list[next_reserved_page_num] = (unsigned long)data_address;
 
             next_reserved_page_num++;
             user_addr += PAGE_SIZE;
@@ -132,13 +143,13 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
 
     if (list_entry_index > 1) {
         set_pte_at(vma->vm_mm, user_addr, connection->ptes[user_page_num], pte_mkspecial(pfn_pte(connection->reserved_pages_pfn, vma->vm_page_prot)));
-        mapping_list[list_entry_index * 3] = mapping_list[list_entry_index * 3 + 1] = mapping_list[list_entry_index * 3 + 2] = 0;
+        mapping_list[list_entry_index * 2] = mapping_list[list_entry_index * 2 + 1] = 0;
         request->map_type = BUSE_DATAMAP_LIST;
         request->map_data = user_addr;
         user_addr += PAGE_SIZE;
     } else if (list_entry_index == 1) {
         request->map_type = BUSE_DATAMAP_SIMPLE;
-        request->map_data = mapping_list[1];
+        request->map_data = mapping_list[0] % PAGE_SIZE;
     } else {  // list_entry_index == 0
         request->map_type = BUSE_DATAMAP_UNMAPPED;
     }
@@ -147,6 +158,60 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
     flush_tlb_mm_range(vma->vm_mm, vma->vm_start, request->mapped_size, PAGE_SHIFT, false);
 
     return 0;
+}
+
+void buse_copy_in_misaligned_pages(struct buse_request *request, struct buse_connection *connection) {
+    unsigned long simple_mapping_list[4] = {0, 0, 0, 0};
+    unsigned long *mapping_list;
+    unsigned long *reserve_mapping_list = (unsigned long *)(connection->reserved_pages + PAGE_SIZE);
+    int reserved_page_num = 2;
+
+    switch (request->map_type) {
+        case BUSE_DATAMAP_UNMAPPED:
+            return;
+        case BUSE_DATAMAP_SIMPLE:
+            simple_mapping_list[0] = connection->vma->vm_start + request->map_data;
+            simple_mapping_list[1] = request->length;
+            mapping_list = simple_mapping_list;
+            break;
+        case BUSE_DATAMAP_LIST:
+            mapping_list = (unsigned long *)connection->reserved_pages;
+            break;
+        default:
+            printk("buse: buse_copy_misaligned_pages: unknown mapping type: %d\n", request->map_type);
+            return;
+    }
+
+    for (int i = 0; mapping_list[i * 2] != 0; i++) {
+        bool segment_front_aligned = ((mapping_list[i * 2] % PAGE_SIZE) == 0);
+        bool segment_end_aligned = (((mapping_list[i * 2] + mapping_list[i * 2 + 1]) % PAGE_SIZE) == 0);
+
+        if (!segment_front_aligned) {
+            size_t length;
+            unsigned offset = (mapping_list[i] % PAGE_SIZE);
+            char *src = connection->reserved_pages + PAGE_SIZE * reserved_page_num;
+            char *dest = (char *)reserve_mapping_list[reserved_page_num];
+
+            if (offset + mapping_list[i * 2 + 1] < PAGE_SIZE) {
+                length = mapping_list[i * 2 + 1];
+                segment_end_aligned = true;
+            } else {
+                length = PAGE_SIZE - offset;
+            }
+
+            memcpy(dest + offset, src + offset, length);
+            reserved_page_num++;
+        }
+
+        if (!segment_end_aligned) {
+            size_t length = ((mapping_list[i] + mapping_list[i * 2 + 1]) % PAGE_SIZE);
+            char *src = connection->reserved_pages + PAGE_SIZE * reserved_page_num;
+            char *dest = (char *)reserve_mapping_list[reserved_page_num];
+
+            memcpy(dest, src, length);
+            reserved_page_num++;
+        }
+    }
 }
 
 void buse_unmap_data(struct buse_request *request, struct buse_connection *connection) {
