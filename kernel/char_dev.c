@@ -195,10 +195,17 @@ static ssize_t buse_dev_write(struct kiocb *iocb, struct iov_iter *from) {
 
 static int buse_dev_release(struct inode *inode, struct file *file) {
     struct buse_connection *connection = get_buse_connection(file);
+    struct buse_block_device *device = connection->block_dev;
     struct buse_request *request;
 
     list_for_each_entry(request, &connection->waiting_requests, list) {
         end_blk_request(request, BLK_STS_IOERR);
+    }
+
+    if (device) {
+        spin_lock(&device->connection_lock);
+        device->num_connection--;
+        spin_unlock(&device->connection_lock);
     }
 
     kfree(connection->reserved_pages);
