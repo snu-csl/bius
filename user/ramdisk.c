@@ -7,7 +7,7 @@
 #include "libbuse.h"
 #include "utils.h"
 
-#define RAMDISK_SIZE (1 * 1024 * 1024 * 1024)
+#define RAMDISK_SIZE (32lu * 1024 * 1024 * 1024)
 #define ZONE_SIZE (32 * 1024 * 1024)
 #define NUM_ZONES (RAMDISK_SIZE / ZONE_SIZE)
 
@@ -85,6 +85,10 @@ int main(int argc, char *argv[]) {
     };
 
     initialize_zone_info();
+    memset(in_memory_data, 0, RAMDISK_SIZE);
+
+    printf("Ready.\n");
+    fflush(stdout);
 
     return buse_main(&options);
 }
