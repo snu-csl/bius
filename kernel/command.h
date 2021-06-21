@@ -1,14 +1,14 @@
-#ifndef BUSE_COMMAND_H
-#define BUSE_COMMAND_H
+#ifndef BIUS_COMMAND_H
+#define BIUS_COMMAND_H
 
 #include <linux/bio.h>
 #include "config.h"
 #include "request.h"
 #include "utils.h"
 
-struct buse_k2u_header {
+struct bius_k2u_header {
     uint64_t id;
-    buse_req_t opcode;
+    bius_req_t opcode;
     uint64_t offset;
     uint64_t length;
     uint64_t data_address;
@@ -16,23 +16,23 @@ struct buse_k2u_header {
     int32_t data_map_type;
 };
 
-struct buse_u2k_header {
+struct bius_u2k_header {
     uint64_t id;
     ssize_t reply;
     uint64_t user_data;
 };
 
-inline ssize_t buse_send_command(struct buse_connection *connection, struct buse_request *request, struct iov_iter *to) {
-    struct buse_k2u_header header = {
+inline ssize_t bius_send_command(struct bius_connection *connection, struct bius_request *request, struct iov_iter *to) {
+    struct bius_k2u_header header = {
         .id = request->id,
         .opcode = request->type,
         .offset = request->pos,
         .length = request->length,
         .data_address = 0,
-        .data_map_type = BUSE_DATAMAP_UNMAPPED,
+        .data_map_type = BIUS_DATAMAP_UNMAPPED,
     };
 
-    if (is_blk_request(request->type) && request->map_type != BUSE_DATAMAP_UNMAPPED) {
+    if (is_blk_request(request->type) && request->map_type != BIUS_DATAMAP_UNMAPPED) {
         header.data_address = connection->vma->vm_start;
         header.mapping_data = request->map_data;
         header.data_map_type = request->map_type;
@@ -41,7 +41,7 @@ inline ssize_t buse_send_command(struct buse_connection *connection, struct buse
     return copy_to_iter(&header, sizeof(header), to);
 }
 
-inline ssize_t buse_send_data(struct buse_request *request, size_t remain_buffer, struct iov_iter *to) {
+inline ssize_t bius_send_data(struct bius_request *request, size_t remain_buffer, struct iov_iter *to) {
     ssize_t total_sent = 0;
     struct bio_vec bvec;
     size_t size_to_send;
@@ -49,8 +49,8 @@ inline ssize_t buse_send_data(struct buse_request *request, size_t remain_buffer
 
     if (unlikely(request->bio == NULL)) {
         return 0;
-    } else if (unlikely(request->map_type != BUSE_DATAMAP_UNMAPPED)) {
-        printk("buse: send_data called on data mapped request\n");
+    } else if (unlikely(request->map_type != BIUS_DATAMAP_UNMAPPED)) {
+        printk("bius: send_data called on data mapped request\n");
         return -EINVAL;
     }
 
@@ -75,14 +75,14 @@ inline ssize_t buse_send_data(struct buse_request *request, size_t remain_buffer
     return total_sent;
 }
 
-inline int buse_receive_data(struct buse_request *request, char __user *user_data) {
+inline int bius_receive_data(struct bius_request *request, char __user *user_data) {
     struct req_iterator iter;
     struct bio_vec bvec;
 
     if (unlikely(request->bio == NULL)) {
         return 0;
-    } else if (unlikely(request->map_type != BUSE_DATAMAP_UNMAPPED)) {
-        printk("buse: receive_data called on data mapped request\n");
+    } else if (unlikely(request->map_type != BIUS_DATAMAP_UNMAPPED)) {
+        printk("bius: receive_data called on data mapped request\n");
         return -EINVAL;
     }
 
@@ -91,7 +91,7 @@ inline int buse_receive_data(struct buse_request *request, char __user *user_dat
         unsigned long result = copy_from_user(dest, user_data, bvec.bv_len);
 
         if (unlikely(result > 0)) {
-            printk("buse: receive_data: copy_from_user failed: %lu\n", result);
+            printk("bius: receive_data: copy_from_user failed: %lu\n", result);
             return -EIO;
         }
 

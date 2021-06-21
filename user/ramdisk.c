@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "libbuse.h"
+#include "libbius.h"
 #include "utils.h"
 
 #define RAMDISK_SIZE (32lu * 1024 * 1024 * 1024)
@@ -72,14 +72,14 @@ static int ramdisk_report_zones(off64_t offset, int nr_zones, struct blk_zone *z
 }
 
 int main(int argc, char *argv[]) {
-    struct buse_operations operations = {
+    struct bius_operations operations = {
         .read = ramdisk_read,
         .write = ramdisk_write,
         .discard = ramdisk_discard,
         .flush = ramdisk_flush,
         .report_zones = ramdisk_report_zones,
     };
-    struct buse_options options = {
+    struct bius_options options = {
         .operations = &operations,
         .num_threads = 4,
     };
@@ -90,5 +90,5 @@ int main(int argc, char *argv[]) {
     printf("Ready.\n");
     fflush(stdout);
 
-    return buse_main(&options);
+    return bius_main(&options);
 }

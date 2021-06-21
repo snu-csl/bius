@@ -2,6 +2,6 @@
 
 ccflags-y				+= -I$(src) -std=gnu11
 
-obj-m					+= buse.o
+obj-m					+= bius.o
 
-buse-objs 				:= main.o block_dev.o char_dev.o data_mapping.o
+bius-objs 				:= main.o block_dev.o char_dev.o data_mapping.o

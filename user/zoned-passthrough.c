@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "libbuse.h"
+#include "libbius.h"
 #include "utils.h"
 
 static int target_fd;
@@ -300,7 +300,7 @@ static blk_status_t passthrough_reset_all_zone() {
 }
 
 int main(int argc, char *argv[]) {
-    struct buse_operations operations = {
+    struct bius_operations operations = {
         .read = passthrough_read,
         .write = passthrough_write,
         .discard = passthrough_discard,
@@ -313,7 +313,7 @@ int main(int argc, char *argv[]) {
         .reset_zone = passthrough_reset_zone,
         .reset_all_zone = passthrough_reset_all_zone,
     };
-    struct buse_options options = {
+    struct bius_options options = {
         .operations = &operations,
         .num_threads = 4,
     };
@@ -339,5 +339,5 @@ int main(int argc, char *argv[]) {
 
     initialize();
 
-    return buse_main(&options);
+    return bius_main(&options);
 }

@@ -1,10 +1,10 @@
-#ifndef BUSE_BLOCK_DEV_H
-#define BUSE_BLOCK_DEV_H
+#ifndef BIUS_BLOCK_DEV_H
+#define BIUS_BLOCK_DEV_H
 
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
 
-struct buse_block_device {
+struct bius_block_device {
     int major;
     struct gendisk *disk;
     struct blk_mq_tag_set tag_set;
@@ -21,11 +21,11 @@ struct buse_block_device {
 
 int create_block_device(const char *name);
 void remove_block_device(const char *name);
-int buse_revalidate(struct buse_block_device *device);
+int bius_revalidate(struct bius_block_device *device);
 
-extern struct buse_block_device *only_device;
+extern struct bius_block_device *only_device;
 
-static inline void init_buse_block_device(struct buse_block_device *device) {
+static inline void init_bius_block_device(struct bius_block_device *device) {
     spin_lock_init(&device->connection_lock);
     device->num_connection = 0;
     device->validated = 0;

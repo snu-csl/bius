@@ -1,5 +1,5 @@
-#ifndef BUSE_CONNECTION_H
-#define BUSE_CONNECTION_H
+#ifndef BIUS_CONNECTION_H
+#define BIUS_CONNECTION_H
 
 #include <linux/list.h>
 #include <linux/fs.h>
@@ -9,25 +9,25 @@
 #include "config.h"
 #include "request.h"
 
-#define BUSE_NUM_RESERVED_PAGES (BUSE_MAX_SEGMENTS + 2)
+#define BIUS_NUM_RESERVED_PAGES (BIUS_MAX_SEGMENTS + 2)
 
-struct buse_connection {
-    struct buse_block_device *block_dev;
+struct bius_connection {
+    struct bius_block_device *block_dev;
     /* List of requests waiting for userspace response */
     struct list_head waiting_requests;
     spinlock_t waiting_lock;
     struct vm_area_struct *vma;
-    pte_t *ptes[BUSE_PTES_PER_COMMAND];
+    pte_t *ptes[BIUS_PTES_PER_COMMAND];
     char *reserved_pages;
     unsigned long reserved_pages_pfn;
-    struct buse_request *sending;
+    struct bius_request *sending;
 };
 
-static inline struct buse_connection *get_buse_connection(struct file *file) {
-    return (struct buse_connection *)file->private_data;
+static inline struct bius_connection *get_bius_connection(struct file *file) {
+    return (struct bius_connection *)file->private_data;
 }
 
-static inline void init_buse_connection(struct buse_connection *connection) {
+static inline void init_bius_connection(struct bius_connection *connection) {
     INIT_LIST_HEAD(&connection->waiting_requests);
     spin_lock_init(&connection->waiting_lock);
     connection->vma = NULL;

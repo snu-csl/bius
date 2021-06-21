@@ -1,5 +1,5 @@
-#ifndef BUSE_REQUEST_H
-#define BUSE_REQUEST_H
+#ifndef BIUS_REQUEST_H
+#define BIUS_REQUEST_H
 
 #include <linux/list.h>
 #include <linux/blk_types.h>
@@ -8,14 +8,14 @@
 #include "request_type.h"
 
 typedef enum data_map_type {
-    BUSE_DATAMAP_UNMAPPED = 0,
-    BUSE_DATAMAP_SIMPLE = 1,
-    BUSE_DATAMAP_LIST = 2,
+    BIUS_DATAMAP_UNMAPPED = 0,
+    BIUS_DATAMAP_SIMPLE = 1,
+    BIUS_DATAMAP_LIST = 2,
 } data_map_type_t;
 
-struct buse_request {
+struct bius_request {
     uint64_t id;
-    buse_req_t type;
+    bius_req_t type;
     loff_t pos;
     size_t length;
     struct list_head list;
@@ -34,21 +34,21 @@ struct buse_request {
             int int_result;
         };
     };
-    void (*on_request_end)(struct buse_request *);
+    void (*on_request_end)(struct bius_request *);
 };
 
-static inline void end_blk_request(struct buse_request *request, blk_status_t result) {
+static inline void end_blk_request(struct bius_request *request, blk_status_t result) {
     request->blk_result = result;
     request->on_request_end(request);
 }
 
-static inline void end_request_int(struct buse_request *request, int result) {
+static inline void end_request_int(struct bius_request *request, int result) {
     request->int_result = result;
     request->on_request_end(request);
 }
 
-static inline struct buse_request *get_request_by_id(struct list_head *list, uint64_t id) {
-    struct buse_request *request;
+static inline struct bius_request *get_request_by_id(struct list_head *list, uint64_t id) {
+    struct bius_request *request;
 
     list_for_each_entry(request, list, list) {
         if (request->id == id)
@@ -58,9 +58,9 @@ static inline struct buse_request *get_request_by_id(struct list_head *list, uin
     return NULL;
 }
 
-static inline bool request_io_done(struct buse_request *request) {
-    if (unlikely(request->map_type != BUSE_DATAMAP_UNMAPPED)) {
-        printk("buse: request_io_done called on data mapped request\n");
+static inline bool request_io_done(struct bius_request *request) {
+    if (unlikely(request->map_type != BIUS_DATAMAP_UNMAPPED)) {
+        printk("bius: request_io_done called on data mapped request\n");
         return true;
     }
 

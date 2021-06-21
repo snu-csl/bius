@@ -1,13 +1,13 @@
-#ifndef BUSE_DATA_MAPPING_H
-#define BUSE_DATA_MAPPING_H
+#ifndef BIUS_DATA_MAPPING_H
+#define BIUS_DATA_MAPPING_H
 
 #include <linux/mm.h>
 
-extern const struct vm_operations_struct buse_vm_operations;
+extern const struct vm_operations_struct bius_vm_operations;
 
-void buse_vm_open(struct vm_area_struct *vma);
-int buse_map_data(struct buse_request *request, struct buse_connection *connection);
-void buse_copy_in_misaligned_pages(struct buse_request *request, struct buse_connection *connection);
-void buse_unmap_data(struct buse_request *request, struct buse_connection *connection);
+void bius_vm_open(struct vm_area_struct *vma);
+int bius_map_data(struct bius_request *request, struct bius_connection *connection);
+void bius_copy_in_misaligned_pages(struct bius_request *request, struct bius_connection *connection);
+void bius_unmap_data(struct bius_request *request, struct bius_connection *connection);
 
 #endif

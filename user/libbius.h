@@ -1,14 +1,14 @@
-#ifndef LIBBUSE_H
-#define LIBBUSE_H
+#ifndef LIBBIUS_H
+#define LIBBIUS_H
 
 #include <linux/blkzoned.h>
 #include <sys/types.h>
 #include "blk_status.h"
 
-#define BUSE_DEFAULT_NUM_THREADS 4
+#define BIUS_DEFAULT_NUM_THREADS 4
 #define SECTOR_SIZE 512
 
-struct buse_operations {
+struct bius_operations {
     blk_status_t (*read)(void *data, off64_t offset, size_t length);
     blk_status_t (*write)(const void *data, off64_t offset, size_t length);
     blk_status_t (*discard)(off64_t offset, size_t length);
@@ -22,11 +22,11 @@ struct buse_operations {
     blk_status_t (*reset_all_zone)();
 };
 
-struct buse_options {
-    const struct buse_operations *operations;
+struct bius_options {
+    const struct bius_operations *operations;
     size_t num_threads;
 };
 
-int buse_main(const struct buse_options *options);
+int bius_main(const struct bius_options *options);
 
 #endif

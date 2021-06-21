@@ -8,15 +8,15 @@ all: $(EXECUTABLES)
 
 blktest: blktest.c
 
-libbuse.o: libbuse.c libbuse.h command.h utils.h ../kernel/config.h ../kernel/request_type.h
+libbius.o: libbius.c libbius.h command.h utils.h ../kernel/config.h ../kernel/request_type.h
 
-ramdisk: ramdisk.c libbuse.o
+ramdisk: ramdisk.c libbius.o
 
-passthrough: passthrough.c libbuse.o
+passthrough: passthrough.c libbius.o
 
-zoned-ramdisk: zoned-ramdisk.c libbuse.o
+zoned-ramdisk: zoned-ramdisk.c libbius.o
 
-zoned-passthrough: zoned-passthrough.c libbuse.o
+zoned-passthrough: zoned-passthrough.c libbius.o
 
 clean:
 	rm -rf $(EXECUTABLES) *.o

@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
-#include "libbuse.h"
+#include "libbius.h"
 #include "utils.h"
 
 #define RAMDISK_SIZE (32lu * 1024 * 1024 * 1024)
@@ -327,7 +327,7 @@ static void set_interrupt_handler() {
 }
 
 int main(int argc, char *argv[]) {
-    struct buse_operations operations = {
+    struct bius_operations operations = {
         .read = ramdisk_read,
         .write = ramdisk_write,
         .discard = ramdisk_discard,
@@ -340,7 +340,7 @@ int main(int argc, char *argv[]) {
         .reset_zone = ramdisk_reset_zone,
         .reset_all_zone = ramdisk_reset_all_zone,
     };
-    struct buse_options options = {
+    struct bius_options options = {
         .operations = &operations,
         .num_threads = 4,
     };
@@ -353,5 +353,5 @@ int main(int argc, char *argv[]) {
     printf("Ready.\n");
     fflush(stdout);
 
-    return buse_main(&options);
+    return bius_main(&options);
 }

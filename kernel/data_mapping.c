@@ -7,8 +7,8 @@
 #include "data_mapping.h"
 #include "utils.h"
 
-void buse_vm_open(struct vm_area_struct *vma) {
-    struct buse_connection *connection = vma->vm_private_data;
+void bius_vm_open(struct vm_area_struct *vma) {
+    struct bius_connection *connection = vma->vm_private_data;
     unsigned long addr = vma->vm_start;
     pte_t *pte;
     spinlock_t *ptl;
@@ -17,15 +17,15 @@ void buse_vm_open(struct vm_area_struct *vma) {
     for (; addr < vma->vm_end; addr += PAGE_SIZE) {
         err = partial_map_pfn(vma, addr, zero_page_pfn, PAGE_SIZE, PAGE_READONLY);
         if (err) {
-            printk("buse: remap_pfn_range failed\n");
+            printk("bius: remap_pfn_range failed\n");
             goto error_unmap;
         }
     }
 
-    for (i = 0, addr = vma->vm_start; i < BUSE_PTES_PER_COMMAND; i++, addr += PAGE_SIZE) {
+    for (i = 0, addr = vma->vm_start; i < BIUS_PTES_PER_COMMAND; i++, addr += PAGE_SIZE) {
         err = follow_pte(vma->vm_mm, addr, &pte, &ptl);
         if (err) {
-            printk("buse: follow_pte failed: %d\n", err);
+            printk("bius: follow_pte failed: %d\n", err);
             goto error_unmap;
         }
         spin_unlock(ptl);
@@ -39,22 +39,22 @@ error_unmap:
     return;
 }
 
-static void buse_vm_close(struct vm_area_struct *vma) {
-    struct buse_connection *connection = vma->vm_private_data;
+static void bius_vm_close(struct vm_area_struct *vma) {
+    struct bius_connection *connection = vma->vm_private_data;
     connection->vma = NULL;
 }
 
-static vm_fault_t buse_vm_fault(struct vm_fault *vmf) {
+static vm_fault_t bius_vm_fault(struct vm_fault *vmf) {
     return VM_FAULT_SIGSEGV;
 }
 
-const struct vm_operations_struct buse_vm_operations = {
-    .open = buse_vm_open,
-    .close = buse_vm_close,
-    .fault = buse_vm_fault,
+const struct vm_operations_struct bius_vm_operations = {
+    .open = bius_vm_open,
+    .close = bius_vm_close,
+    .fault = bius_vm_fault,
 };
 
-int buse_map_data(struct buse_request *request, struct buse_connection *connection) {
+int bius_map_data(struct bius_request *request, struct bius_connection *connection) {
     struct vm_area_struct *vma = connection->vma;
     struct req_iterator iter;
     struct bio_vec bvec;
@@ -67,8 +67,8 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
     int user_page_num = 0;
     bool segment_end_aligned = false;
 
-    if (request->map_type != BUSE_DATAMAP_UNMAPPED) {
-        printk("buse: request is already mapped, id = %llu, map_type = %d\n", request->id, request->map_type);
+    if (request->map_type != BIUS_DATAMAP_UNMAPPED) {
+        printk("bius: request is already mapped, id = %llu, map_type = %d\n", request->id, request->map_type);
         return 0;
     }
 
@@ -144,14 +144,14 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
     if (list_entry_index > 1) {
         set_pte_at(vma->vm_mm, user_addr, connection->ptes[user_page_num], pte_mkspecial(pfn_pte(connection->reserved_pages_pfn, vma->vm_page_prot)));
         mapping_list[list_entry_index * 2] = mapping_list[list_entry_index * 2 + 1] = 0;
-        request->map_type = BUSE_DATAMAP_LIST;
+        request->map_type = BIUS_DATAMAP_LIST;
         request->map_data = user_addr;
         user_addr += PAGE_SIZE;
     } else if (list_entry_index == 1) {
-        request->map_type = BUSE_DATAMAP_SIMPLE;
+        request->map_type = BIUS_DATAMAP_SIMPLE;
         request->map_data = mapping_list[0] % PAGE_SIZE;
     } else {  // list_entry_index == 0
-        request->map_type = BUSE_DATAMAP_UNMAPPED;
+        request->map_type = BIUS_DATAMAP_UNMAPPED;
     }
 
     request->mapped_size = user_addr - vma->vm_start;
@@ -160,25 +160,25 @@ int buse_map_data(struct buse_request *request, struct buse_connection *connecti
     return 0;
 }
 
-void buse_copy_in_misaligned_pages(struct buse_request *request, struct buse_connection *connection) {
+void bius_copy_in_misaligned_pages(struct bius_request *request, struct bius_connection *connection) {
     unsigned long simple_mapping_list[4] = {0, 0, 0, 0};
     unsigned long *mapping_list;
     unsigned long *reserve_mapping_list = (unsigned long *)(connection->reserved_pages + PAGE_SIZE);
     int reserved_page_num = 2;
 
     switch (request->map_type) {
-        case BUSE_DATAMAP_UNMAPPED:
+        case BIUS_DATAMAP_UNMAPPED:
             return;
-        case BUSE_DATAMAP_SIMPLE:
+        case BIUS_DATAMAP_SIMPLE:
             simple_mapping_list[0] = connection->vma->vm_start + request->map_data;
             simple_mapping_list[1] = request->length;
             mapping_list = simple_mapping_list;
             break;
-        case BUSE_DATAMAP_LIST:
+        case BIUS_DATAMAP_LIST:
             mapping_list = (unsigned long *)connection->reserved_pages;
             break;
         default:
-            printk("buse: buse_copy_misaligned_pages: unknown mapping type: %d\n", request->map_type);
+            printk("bius: bius_copy_misaligned_pages: unknown mapping type: %d\n", request->map_type);
             return;
     }
 
@@ -214,12 +214,12 @@ void buse_copy_in_misaligned_pages(struct buse_request *request, struct buse_con
     }
 }
 
-void buse_unmap_data(struct buse_request *request, struct buse_connection *connection) {
+void bius_unmap_data(struct bius_request *request, struct bius_connection *connection) {
     struct vm_area_struct *vma = connection->vma;
     unsigned long addr = vma->vm_start;
     int mapped_pages = request->mapped_size / PAGE_SIZE;
 
-    if (request->map_type == BUSE_DATAMAP_UNMAPPED)
+    if (request->map_type == BIUS_DATAMAP_UNMAPPED)
         return;
 
     for (int i = 0; i < mapped_pages; i++, addr += PAGE_SIZE) {
@@ -227,5 +227,5 @@ void buse_unmap_data(struct buse_request *request, struct buse_connection *conne
     }
     flush_tlb_mm_range(vma->vm_mm, vma->vm_start, request->mapped_size, PAGE_SHIFT, false);
 
-    request->map_type = BUSE_DATAMAP_UNMAPPED;
+    request->map_type = BIUS_DATAMAP_UNMAPPED;
 }

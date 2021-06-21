@@ -103,7 +103,7 @@ int do_test_hard(int fd) {
 }
 
 int main(int argc, char **argv) {
-    int fd = open("/dev/buse-block", O_RDWR | O_DIRECT);
+    int fd = open("/dev/bius-block", O_RDWR | O_DIRECT);
     enum test_mode mode = TEST_MODE_SIMPLE;
     if (fd < 0) {
         fprintf(stderr, "open failed: %s\n", strerror(errno));

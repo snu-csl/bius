@@ -8,20 +8,20 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include "command.h"
-#include "libbuse.h"
+#include "libbius.h"
 #include "utils.h"
 #include "../kernel/config.h"
 
 #define PAGE_SIZE 4096
-#define DATA_MAP_AREA_SIZE (BUSE_MAX_SIZE_PER_COMMAND + PAGE_SIZE)
+#define DATA_MAP_AREA_SIZE (BIUS_MAX_SIZE_PER_COMMAND + PAGE_SIZE)
 
-static inline int read_command(int fd, struct buse_k2u_header *header) {
-    ssize_t result = read(fd, header, sizeof(struct buse_k2u_header));
+static inline int read_command(int fd, struct bius_k2u_header *header) {
+    ssize_t result = read(fd, header, sizeof(struct bius_k2u_header));
     if (result < 0) {
         fprintf(stderr, "Command reading failed: %s\n", strerror(errno));
     } else if (result == 0) {
         fprintf(stderr, "EOF returned while reading\n");
-    } else if (result < sizeof(struct buse_k2u_header)) {
+    } else if (result < sizeof(struct bius_k2u_header)) {
         fprintf(stderr, "Read size is smaller than header: %ld\n", result);
         result = -1;
     }
@@ -29,13 +29,13 @@ static inline int read_command(int fd, struct buse_k2u_header *header) {
     return result;
 }
 
-static inline int write_command(int fd, const struct buse_u2k_header *header) {
-    ssize_t result = write(fd, header, sizeof(struct buse_u2k_header));
+static inline int write_command(int fd, const struct bius_u2k_header *header) {
+    ssize_t result = write(fd, header, sizeof(struct bius_u2k_header));
     if (result < 0) {
         fprintf(stderr, "Reply writing failed: %s\n", strerror(errno));
     } else if (result == 0) {
         fprintf(stderr, "EOF returned while writing\n");
-    } else if (result < sizeof(struct buse_u2k_header)) {
+    } else if (result < sizeof(struct bius_u2k_header)) {
         fprintf(stderr, "Written size is smaller than header: %ld\n", result);
         result = -1;
     }
@@ -43,9 +43,9 @@ static inline int write_command(int fd, const struct buse_u2k_header *header) {
     return result;
 }
 
-static inline void handle_copy_in(int fd, struct buse_k2u_header *header, char *buffer) {
-    if (request_may_have_data(header->opcode) && header->length <= BUSE_MAP_DATA_THRESHOLD) {
-        header->data_map_type = BUSE_DATAMAP_SIMPLE;
+static inline void handle_copy_in(int fd, struct bius_k2u_header *header, char *buffer) {
+    if (request_may_have_data(header->opcode) && header->length <= BIUS_MAP_DATA_THRESHOLD) {
+        header->data_map_type = BIUS_DATAMAP_SIMPLE;
         header->data_address = (unsigned long)buffer;
         header->mapping_data = 0;
 
@@ -67,7 +67,7 @@ static inline void handle_copy_in(int fd, struct buse_k2u_header *header, char *
     }
 }
 
-static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u_header *k2u, const struct buse_operations *ops, unsigned long *out_user_data) {
+static inline int64_t handle_blk_command_with_datamap_list(const struct bius_k2u_header *k2u, const struct bius_operations *ops, unsigned long *out_user_data) {
     unsigned long *datamap_list = (unsigned long *)k2u->mapping_data;
     off64_t offset = k2u->offset;
     bool first_call = true;
@@ -78,19 +78,19 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u
         blk_status_t result;
 
         switch (k2u->opcode) {
-            case BUSE_READ:
+            case BIUS_READ:
                 if (ops->read)
                     result = ops->read(data_address, offset, segment_size);
                 else
                     return BLK_STS_NOTSUPP;
                 break;
-            case BUSE_WRITE:
+            case BIUS_WRITE:
                 if (ops->write)
                     result = ops->write(data_address, offset, segment_size);
                 else
                     return BLK_STS_NOTSUPP;
                 break;
-             case BUSE_ZONE_APPEND:
+             case BIUS_ZONE_APPEND:
                 if (ops->append_zone)
                     result = ops->append_zone(data_address, offset, segment_size, first_call? (off64_t *)out_user_data : NULL);
                 else
@@ -111,59 +111,59 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct buse_k2u
     return BLK_STS_OK;
 }
 
-static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, const struct buse_operations *ops, unsigned long *out_user_data) {
-    if (k2u->data_map_type == BUSE_DATAMAP_LIST)
+static inline int64_t handle_blk_command(const struct bius_k2u_header *k2u, const struct bius_operations *ops, unsigned long *out_user_data) {
+    if (k2u->data_map_type == BIUS_DATAMAP_LIST)
         return handle_blk_command_with_datamap_list(k2u, ops, out_user_data);
 
     switch (k2u->opcode) {
-        case BUSE_READ:
-            if (k2u->length <= BUSE_MAP_DATA_THRESHOLD)
+        case BIUS_READ:
+            if (k2u->length <= BIUS_MAP_DATA_THRESHOLD)
                 *out_user_data = (unsigned long)(k2u->data_address + k2u->mapping_data);
             if (ops->read)
                 return ops->read((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_WRITE:
+        case BIUS_WRITE:
             if (ops->write)
                 return ops->write((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_DISCARD:
+        case BIUS_DISCARD:
             if (ops->discard)
                 return ops->discard(k2u->offset, k2u->length);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_FLUSH:
+        case BIUS_FLUSH:
             if (ops->flush)
                 return ops->flush();
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_OPEN:
+        case BIUS_ZONE_OPEN:
             if (ops->open_zone)
                 return ops->open_zone(k2u->offset);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_CLOSE:
+        case BIUS_ZONE_CLOSE:
             if (ops->close_zone)
                 return ops->close_zone(k2u->offset);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_FINISH:
+        case BIUS_ZONE_FINISH:
             if (ops->finish_zone)
                 return ops->finish_zone(k2u->offset);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_APPEND:
+        case BIUS_ZONE_APPEND:
             if (ops->append_zone)
                 return ops->append_zone((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length, (off64_t *)out_user_data);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_RESET:
+        case BIUS_ZONE_RESET:
             if (ops->reset_zone)
                 return ops->reset_zone(k2u->offset);
             else
                 return BLK_STS_NOTSUPP;
-        case BUSE_ZONE_RESET_ALL:
+        case BIUS_ZONE_RESET_ALL:
             if (ops->reset_all_zone)
                 return ops->reset_all_zone();
             else
@@ -175,23 +175,23 @@ static inline int64_t handle_blk_command(const struct buse_k2u_header *k2u, cons
 }
 
 static void *thread_main(void *arg) {
-    const struct buse_options *options = arg;
-    const struct buse_operations *ops = options->operations;
-    struct buse_k2u_header k2u;
-    struct buse_u2k_header u2k;
+    const struct bius_options *options = arg;
+    const struct bius_operations *ops = options->operations;
+    struct bius_k2u_header k2u;
+    struct bius_u2k_header u2k;
     struct blk_zone *zone_info = NULL;
-    int buse_char_dev = open("/dev/buse", O_RDWR);
-    if (buse_char_dev < 0) {
+    int bius_char_dev = open("/dev/bius", O_RDWR);
+    if (bius_char_dev < 0) {
         fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
         exit(1);
     }
-    void *data_area = mmap(NULL, DATA_MAP_AREA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, buse_char_dev, 0);
+    void *data_area = mmap(NULL, DATA_MAP_AREA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, bius_char_dev, 0);
     printd("mmap result = %p\n", data_area);
     if (data_area == MAP_FAILED) {
         fprintf(stderr, "mmap failed: %s\n", strerror(errno));
         exit(1);
     }
-    char *data_copy_buffer = aligned_alloc(PAGE_SIZE, BUSE_MAP_DATA_THRESHOLD);
+    char *data_copy_buffer = aligned_alloc(PAGE_SIZE, BIUS_MAP_DATA_THRESHOLD);
     if (data_copy_buffer == NULL) {
         fprintf(stderr, "data copy buffer allocation failed: %s\n", strerror(errno));
         exit(1);
@@ -199,12 +199,12 @@ static void *thread_main(void *arg) {
 
 
     while (1) {
-        int result = read_command(buse_char_dev, &k2u);
+        int result = read_command(bius_char_dev, &k2u);
         printd("command read. id = %lu, opcode = %d, offset = %lu, length = %lu, data_address = %lx\n", k2u.id, k2u.opcode, k2u.offset, k2u.length, k2u.data_address);
         if (result < 0)
             exit(1);
 
-        handle_copy_in(buse_char_dev, &k2u, data_copy_buffer);
+        handle_copy_in(bius_char_dev, &k2u, data_copy_buffer);
 
         u2k.id = k2u.id;
         if (is_blk_request(k2u.opcode)) {
@@ -212,13 +212,13 @@ static void *thread_main(void *arg) {
 
             u2k.reply = handle_blk_command(&k2u, ops, &user_data);
             u2k.user_data = user_data;
-        } else if (k2u.opcode == BUSE_REPORT_ZONES && ops->report_zones) {
+        } else if (k2u.opcode == BIUS_REPORT_ZONES && ops->report_zones) {
             zone_info = malloc(sizeof(struct blk_zone) * k2u.length);
             u2k.reply = ops->report_zones(k2u.offset, (int)k2u.length, zone_info) * sizeof(struct blk_zone);
             u2k.user_data = (uint64_t)zone_info;
         }
 
-        result = write_command(buse_char_dev, &u2k);
+        result = write_command(bius_char_dev, &u2k);
         if (result < 0)
             exit(1);
 
@@ -231,8 +231,8 @@ static void *thread_main(void *arg) {
     return NULL;
 }
 
-static inline int buse_main_real(const struct buse_options *options) {
-    size_t num_threads = BUSE_DEFAULT_NUM_THREADS;
+static inline int bius_main_real(const struct bius_options *options) {
+    size_t num_threads = BIUS_DEFAULT_NUM_THREADS;
     int result = 0;
     pthread_t *threads;
 
@@ -246,7 +246,7 @@ static inline int buse_main_real(const struct buse_options *options) {
         return -ENOMEM;
 
     for (int i = 0; i < num_threads; i++) {
-        result = pthread_create(&threads[i], NULL, thread_main, (struct buse_options *)options);
+        result = pthread_create(&threads[i], NULL, thread_main, (struct bius_options *)options);
         if (result < 0) {
             fprintf(stderr, "pthread_create failed: %s\n", strerror(result));
             goto out_free;
@@ -269,8 +269,8 @@ out_free:
     return result;
 }
 
-int buse_main(const struct buse_options *options) {
-    int result = buse_main_real(options);
+int bius_main(const struct bius_options *options) {
+    int result = bius_main_real(options);
 
     if (result < 0) {
         errno = result;

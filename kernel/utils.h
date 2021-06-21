@@ -1,5 +1,5 @@
-#ifndef BUSE_UTILS_H
-#define BUSE_UTILS_H
+#ifndef BIUS_UTILS_H
+#define BIUS_UTILS_H
 
 #ifdef DEBUG
 #define printd printk

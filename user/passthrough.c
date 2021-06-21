@@ -9,7 +9,7 @@
 #include <sys/ioctl.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include "libbuse.h"
+#include "libbius.h"
 #include "utils.h"
 
 static int target_fd;
@@ -126,14 +126,14 @@ static int passthrough_report_zones(off64_t offset, int nr_zones, struct blk_zon
 }
 
 int main(int argc, char *argv[]) {
-    struct buse_operations operations = {
+    struct bius_operations operations = {
         .read = passthrough_read,
         .write = passthrough_write,
         .discard = passthrough_discard,
         .flush = passthrough_flush,
         .report_zones = passthrough_report_zones,
     };
-    struct buse_options options = {
+    struct bius_options options = {
         .operations = &operations,
         .num_threads = 4,
     };
@@ -159,5 +159,5 @@ int main(int argc, char *argv[]) {
 
     initialize_zone_info();
 
-    return buse_main(&options);
+    return bius_main(&options);
 }
