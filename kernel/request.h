@@ -5,13 +5,8 @@
 #include <linux/blk_types.h>
 #include <linux/blk-mq.h>
 #include <linux/semaphore.h>
-#include "request_type.h"
-
-typedef enum data_map_type {
-    BIUS_DATAMAP_UNMAPPED = 0,
-    BIUS_DATAMAP_SIMPLE = 1,
-    BIUS_DATAMAP_LIST = 2,
-} data_map_type_t;
+#include "bius/map_type.h"
+#include <bius/request_type.h>
 
 struct bius_request {
     uint64_t id;

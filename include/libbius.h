@@ -3,10 +3,10 @@
 
 #include <linux/blkzoned.h>
 #include <sys/types.h>
-#include "blk_status.h"
+#include <bius/blk_status.h>
 
-#define BIUS_DEFAULT_NUM_THREADS 4
 #define SECTOR_SIZE 512
+#define BIUS_DEFAULT_NUM_THREADS 4
 
 struct bius_operations {
     blk_status_t (*read)(void *data, off64_t offset, size_t length);

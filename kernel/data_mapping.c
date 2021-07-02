@@ -1,8 +1,8 @@
 #include <linux/rwsem.h>
 #include <linux/mm.h>
-#include "tlbflush.h"
+#include <asm/tlbflush.h>
 #include "connection.h"
-#include "config.h"
+#include <bius/config.h>
 #include "char_dev.h"
 #include "data_mapping.h"
 #include "utils.h"

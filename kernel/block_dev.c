@@ -1,8 +1,8 @@
 #include <linux/types.h>
 #include "block_dev.h"
-#include "config.h"
+#include <bius/config.h>
 #include "char_dev.h"
-#include "config.h"
+#include <bius/config.h>
 #include "request.h"
 #include "utils.h"
 

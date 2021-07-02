@@ -2,25 +2,10 @@
 #define BIUS_COMMAND_H
 
 #include <linux/bio.h>
-#include "config.h"
+#include <bius/command_header.h>
+#include <bius/config.h>
 #include "request.h"
 #include "utils.h"
-
-struct bius_k2u_header {
-    uint64_t id;
-    bius_req_t opcode;
-    uint64_t offset;
-    uint64_t length;
-    uint64_t data_address;
-    uint64_t mapping_data;
-    int32_t data_map_type;
-};
-
-struct bius_u2k_header {
-    uint64_t id;
-    ssize_t reply;
-    uint64_t user_data;
-};
 
 inline ssize_t bius_send_command(struct bius_connection *connection, struct bius_request *request, struct iov_iter *to) {
     struct bius_k2u_header header = {

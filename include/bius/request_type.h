@@ -1,6 +1,10 @@
 #ifndef BIUS_REQUEST_TYPE_H
 #define BIUS_REQUEST_TYPE_H
 
+#ifndef __KERNEL__
+#include <stdbool.h>
+#endif
+
 typedef enum bius_req {
     BIUS_CONNECT = 0,
     BIUS_DISCONNECT = 1,

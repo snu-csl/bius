@@ -1,16 +1,10 @@
-#ifndef BIUS_COMMAND_H
-#define BIUS_COMMAND_H
+#ifndef BIUS_COMMAND_HEADER_H
+#define BIUS_COMMAND_HEADER_H
 
+#include <bius/request_type.h>
+#ifndef __KERNEL__
 #include <stdint.h>
-#include <sys/types.h>
-#include <stdbool.h>
-#include "../kernel/request_type.h"
-
-typedef enum data_map_type {
-    BIUS_DATAMAP_UNMAPPED = 0,
-    BIUS_DATAMAP_SIMPLE = 1,
-    BIUS_DATAMAP_LIST = 2,
-} data_map_type_t;
+#endif  // __KERNEL__
 
 struct bius_k2u_header {
     uint64_t id;

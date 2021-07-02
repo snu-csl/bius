@@ -7,10 +7,11 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include "command.h"
+#include <bius/config.h>
+#include <bius/command_header.h>
+#include <bius/map_type.h>
 #include "libbius.h"
 #include "utils.h"
-#include "../kernel/config.h"
 
 #define PAGE_SIZE 4096
 #define DATA_MAP_AREA_SIZE (BIUS_MAX_SIZE_PER_COMMAND + PAGE_SIZE)

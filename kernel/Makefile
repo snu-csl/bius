@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 
-ccflags-y				+= -I$(src) -std=gnu11
+ccflags-y				+= -I$(src) -I$(src)/../include -std=gnu11
 
 obj-m					+= bius.o
 

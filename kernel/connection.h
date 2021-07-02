@@ -6,7 +6,7 @@
 #include <linux/wait.h>
 #include <linux/spinlock.h>
 #include "block_dev.h"
-#include "config.h"
+#include <bius/config.h>
 #include "request.h"
 
 #define BIUS_NUM_RESERVED_PAGES (BIUS_MAX_SEGMENTS + 2)
