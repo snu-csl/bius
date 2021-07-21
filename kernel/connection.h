@@ -16,10 +16,12 @@ struct bius_connection {
     /* List of requests waiting for userspace response */
     struct list_head waiting_requests;
     spinlock_t waiting_lock;
+#ifdef CONFIG_BIUS_DATAMAP
     struct vm_area_struct *vma;
     pte_t *ptes[BIUS_PTES_PER_COMMAND];
     char *reserved_pages;
     unsigned long reserved_pages_pfn;
+#endif
     struct bius_request *sending;
 };
 
@@ -30,7 +32,9 @@ static inline struct bius_connection *get_bius_connection(struct file *file) {
 static inline void init_bius_connection(struct bius_connection *connection) {
     INIT_LIST_HEAD(&connection->waiting_requests);
     spin_lock_init(&connection->waiting_lock);
+#ifdef CONFIG_BIUS_DATAMAP
     connection->vma = NULL;
+#endif
     connection->sending = NULL;
 }
 

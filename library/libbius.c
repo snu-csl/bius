@@ -78,7 +78,7 @@ static inline int write_command(int fd, const struct bius_u2k_header *header) {
 }
 
 static inline void handle_copy_in(int fd, struct bius_k2u_header *header, char *buffer) {
-    if (request_may_have_data(header->opcode) && header->length <= BIUS_MAP_DATA_THRESHOLD) {
+    if (request_may_have_data(header->opcode) && header->data_map_type == BIUS_DATAMAP_UNMAPPED) {
         header->data_map_type = BIUS_DATAMAP_SIMPLE;
         header->data_address = (unsigned long)buffer;
         header->mapping_data = 0;
@@ -212,13 +212,18 @@ static void handle_requests(int bius_char_dev, const struct bius_operations *ops
     struct bius_k2u_header k2u;
     struct bius_u2k_header u2k;
     struct blk_zone *zone_info = NULL;
+#ifdef CONFIG_BIUS_DATAMAP
     void *data_area = mmap(NULL, DATA_MAP_AREA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, bius_char_dev, 0);
     printd("mmap result = %p\n", data_area);
     if (data_area == MAP_FAILED) {
         fprintf(stderr, "mmap failed: %s\n", strerror(errno));
         exit(1);
     }
-    char *data_copy_buffer = aligned_alloc(PAGE_SIZE, BIUS_MAP_DATA_THRESHOLD);
+    size_t data_copy_buffer_size = BIUS_MAP_DATA_THRESHOLD;
+#else
+    size_t data_copy_buffer_size = BIUS_MAX_SIZE_PER_COMMAND;
+#endif
+    char *data_copy_buffer = aligned_alloc(PAGE_SIZE, data_copy_buffer_size);
     if (data_copy_buffer == NULL) {
         fprintf(stderr, "data copy buffer allocation failed: %s\n", strerror(errno));
         exit(1);

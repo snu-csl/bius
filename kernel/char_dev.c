@@ -14,7 +14,9 @@ unsigned long zero_page_pfn = 0;
 
 static int bius_dev_open(struct inode *inode, struct file *file) {
     struct bius_connection *connection;
+#ifdef CONFIG_BIUS_DATAMAP
     int error = 0;
+#endif
 
     connection = kmalloc(sizeof(struct bius_connection), GFP_KERNEL);
     if (connection == NULL)
@@ -24,18 +26,22 @@ static int bius_dev_open(struct inode *inode, struct file *file) {
     connection->block_dev = NULL;
     file->private_data = connection;
 
+#ifdef CONFIG_BIUS_DATAMAP
     connection->reserved_pages = kmalloc(PAGE_SIZE * BIUS_NUM_RESERVED_PAGES, GFP_KERNEL);
     if (connection->reserved_pages == NULL) {
         error = -ENOMEM;
         goto out_free;
     }
     connection->reserved_pages_pfn = PHYS_PFN(virt_to_phys(connection->reserved_pages));
+#endif
 
     return 0;
 
+#ifdef CONFIG_BIUS_DATAMAP
 out_free:
     kfree(connection);
     return error;
+#endif
 }
 
 static ssize_t bius_dev_read(struct kiocb *iocb, struct iov_iter *to) {
@@ -86,6 +92,7 @@ static ssize_t bius_dev_read(struct kiocb *iocb, struct iov_iter *to) {
     printd("bius: sending request: id = %llu, type = %d, pos = %lld, length = %lu\n", request->id, request->type, request->pos, request->length);
 
     if (request_may_have_data(request->type) && request->length > 0) {
+#ifdef CONFIG_BIUS_DATAMAP
         if (request->length > BIUS_MAP_DATA_THRESHOLD) {
             ret = bius_map_data(request, connection);
             if (ret < 0) {
@@ -97,6 +104,12 @@ static ssize_t bius_dev_read(struct kiocb *iocb, struct iov_iter *to) {
             request->map_data = request->length;
             connection->sending = request;
         }
+#else
+        if (request_is_write(request->type)) {
+            request->map_data = request->length;
+            connection->sending = request;
+        }
+#endif
     }
 
     ret = bius_send_command(connection, request, to);
@@ -201,6 +214,7 @@ static ssize_t bius_dev_write(struct kiocb *iocb, struct iov_iter *from) {
     printd("bius: received response: id = %llu, reply = %ld\n", header.id, header.reply);
 
     if (is_blk_request(request->type)) {
+#ifdef CONFIG_BIUS_DATAMAP
         if (header.reply == BLK_STS_OK && request->type == BIUS_READ) {
             if (request->length <= BIUS_MAP_DATA_THRESHOLD) {
                 void __user *data = (void __user *)header.user_data;
@@ -216,6 +230,17 @@ static ssize_t bius_dev_write(struct kiocb *iocb, struct iov_iter *from) {
         }
 
         bius_unmap_data(request, connection);
+#else
+        if (header.reply == BLK_STS_OK && request->type == BIUS_READ) {
+            void __user *data = (void __user *)header.user_data;
+
+            ret = bius_receive_data(request, data);
+            if (ret < 0) {
+                end_blk_request(request, BLK_STS_IOERR);
+                return ret;
+            }
+        }
+#endif
 
         if (request->type == BIUS_ZONE_APPEND)
             request->pos = (loff_t)header.user_data;
@@ -261,11 +286,14 @@ static int bius_dev_release(struct inode *inode, struct file *file) {
             remove_block_device(device->disk->disk_name);
     }
 
+#ifdef CONFIG_BIUS_DATAMAP
     kfree(connection->reserved_pages);
+#endif
     kfree(connection);
     return 0;
 }
 
+#ifdef CONFIG_BIUS_DATAMAP
 static int bius_dev_mmap(struct file *file, struct vm_area_struct *vma) {
     struct bius_connection *connection = get_bius_connection(file);
     size_t vma_size = vma->vm_end - vma->vm_start;
@@ -286,21 +314,18 @@ static int bius_dev_mmap(struct file *file, struct vm_area_struct *vma) {
 
     return 0;
 }
+#endif
 
 const struct file_operations bius_dev_operations = {
     .owner = THIS_MODULE,
     .open = bius_dev_open,
     .llseek = no_llseek,
     .read_iter = bius_dev_read,
-//    .splice_read = bius_dev_splice_read,
     .write_iter = bius_dev_write,
-//    .splice_write = bius_dev_splice_write,
-//    .poll = bius_dev_poll,
     .release = bius_dev_release,
-//    .fasync = bius_dev_fasync,
-//    .unlocked_ioctl = bius_dev_ioctl,
-//    .compat_ioctl = compat_ptr_ioctl,
+#ifdef CONFIG_BIUS_DATAMAP
     .mmap = bius_dev_mmap,
+#endif
 };
 
 static struct miscdevice bius_device = {
@@ -310,16 +335,20 @@ static struct miscdevice bius_device = {
 };
 
 int __init bius_dev_init(void) {
+#ifdef CONFIG_BIUS_DATAMAP
     zero_page = kzalloc(PAGE_SIZE, GFP_KERNEL);
     if (!zero_page)
         return -ENOMEM;
     zero_page_pfn = PHYS_PFN(virt_to_phys(zero_page));
+#endif
 
     return misc_register(&bius_device);
 }
 
 void bius_dev_exit(void) {
     misc_deregister(&bius_device);
+#ifdef CONFIG_BIUS_DATAMAP
     if (zero_page)
         kfree(zero_page);
+#endif
 }

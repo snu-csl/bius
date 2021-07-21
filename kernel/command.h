@@ -17,11 +17,13 @@ inline ssize_t bius_send_command(struct bius_connection *connection, struct bius
         .data_map_type = BIUS_DATAMAP_UNMAPPED,
     };
 
+#ifdef CONFIG_BIUS_DATAMAP
     if (is_blk_request(request->type) && request->map_type != BIUS_DATAMAP_UNMAPPED) {
         header.data_address = connection->vma->vm_start;
         header.mapping_data = request->map_data;
         header.data_map_type = request->map_type;
     }
+#endif
 
     return copy_to_iter(&header, sizeof(header), to);
 }
@@ -40,20 +42,22 @@ inline ssize_t bius_send_data(struct bius_request *request, size_t remain_buffer
     }
 
     while (request->map_data > 0 && remain_buffer > 0) {
+        ssize_t sent_size;
         bvec = mp_bio_iter_iovec(request->bio, request->bio->bi_iter);
         size_to_send = min_t(size_t, bvec.bv_len, remain_buffer);
         data = page_address(bvec.bv_page) + bvec.bv_offset;
 
-        if (copy_to_iter(data, size_to_send, to) < size_to_send)
-            return -EIO;
+        sent_size = copy_to_iter(data, size_to_send, to);
 
-        remain_buffer -= size_to_send;
-        total_sent += size_to_send;
-        request->map_data -= size_to_send;
-        bio_advance_iter(request->bio, &request->bio->bi_iter, size_to_send);
+        remain_buffer -= sent_size;
+        total_sent += sent_size;
+        request->map_data -= sent_size;
+        bio_advance_iter(request->bio, &request->bio->bi_iter, sent_size);
 
         if (request->bio->bi_iter.bi_size == 0) {
             request->bio = request->bio->bi_next;
+        } else if (sent_size == 0) {
+            break;
         }
     }
 

@@ -12,6 +12,7 @@
 
 #define BIUS_MAX_ZONES (128 * 1024)
 
+//#define CONFIG_BIUS_DATAMAP
 #define BIUS_MAP_DATA_THRESHOLD (128 * 1024)
 
 #endif

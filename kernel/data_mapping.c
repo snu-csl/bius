@@ -1,8 +1,10 @@
+#include <bius/config.h>
+
+#ifdef CONFIG_BIUS_DATAMAP
 #include <linux/rwsem.h>
 #include <linux/mm.h>
 #include <asm/tlbflush.h>
 #include "connection.h"
-#include <bius/config.h>
 #include "char_dev.h"
 #include "data_mapping.h"
 #include "utils.h"
@@ -229,3 +231,4 @@ void bius_unmap_data(struct bius_request *request, struct bius_connection *conne
 
     request->map_type = BIUS_DATAMAP_UNMAPPED;
 }
+#endif
