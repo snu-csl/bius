@@ -1,13 +1,15 @@
 #include <linux/types.h>
+#include <linux/spinlock.h>
+#include <linux/kthread.h>
+#include <bius/config.h>
 #include "block_dev.h"
-#include <bius/config.h>
 #include "char_dev.h"
-#include <bius/config.h>
 #include "request.h"
 #include "utils.h"
 
 atomic64_t next_request_id = ATOMIC64_INIT(0);
-struct bius_block_device *only_device = NULL;
+static struct list_head all_disk_list = LIST_HEAD_INIT(all_disk_list);
+DEFINE_SPINLOCK(disk_list_lock);
 
 static inline bius_req_t to_bius_request(unsigned int op) {
     switch (op) {
@@ -41,16 +43,12 @@ static void bius_blk_request_end(struct bius_request *request) {
 }
 
 static blk_status_t bius_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd) {
+    struct bius_block_device *device = hctx->driver_data;
     struct request *rq = bd->rq;
     struct bius_request *bius_request = blk_mq_rq_to_pdu(rq);
     loff_t pos = blk_rq_pos(rq) << SECTOR_SHIFT;
 
     blk_mq_start_request(rq);
-
-    if (only_device == NULL) {
-        blk_mq_end_request(rq, BLK_STS_IOERR);
-        return BLK_STS_IOERR;
-    }
 
     bius_request->id = atomic64_inc_return(&next_request_id);
     bius_request->type = to_bius_request(req_op(rq));
@@ -68,11 +66,11 @@ static blk_status_t bius_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_m
         return BLK_STS_NOTSUPP;
     }
 
-    spin_lock(&only_device->pending_lock);
-    list_add_tail(&bius_request->list, &only_device->pending_requests);
-    spin_unlock(&only_device->pending_lock);
+    spin_lock(&device->pending_lock);
+    list_add_tail(&bius_request->list, &device->pending_requests);
+    spin_unlock(&device->pending_lock);
 
-    wake_up(&only_device->wait_queue);
+    wake_up(&device->wait_queue);
 
     return BLK_STS_OK;
 }
@@ -82,12 +80,18 @@ static void bius_complete_rq(struct request *rq) {
     blk_mq_end_request(rq, request->int_result);
 }
 
+static int bius_init_hctx(struct blk_mq_hw_ctx *hctx, void *driver_data, unsigned int hctx_idx) {
+    hctx->driver_data = driver_data;  // bius_block_device set in blk_mq_tag_set.driver_data
+    return 0;
+}
+
 static const struct blk_mq_ops bius_mq_ops = {
     .queue_rq = bius_queue_rq,
     .complete = bius_complete_rq,
+    .init_hctx = bius_init_hctx,
 };
 
-static void initialize_tag_set(struct blk_mq_tag_set *tag_set) {
+static void initialize_tag_set(struct blk_mq_tag_set *tag_set, struct bius_block_device *device) {
     memset(tag_set, 0, sizeof(struct blk_mq_tag_set));
     tag_set->ops = &bius_mq_ops;
     tag_set->nr_hw_queues = 4;
@@ -95,7 +99,7 @@ static void initialize_tag_set(struct blk_mq_tag_set *tag_set) {
     tag_set->numa_node = NUMA_NO_NODE;
     tag_set->cmd_size = sizeof(struct bius_request);
     tag_set->flags = BLK_MQ_F_SHOULD_MERGE | BLK_MQ_F_BLOCKING;
-    tag_set->driver_data = NULL;
+    tag_set->driver_data = device;
 }
 
 static void bius_report_zones_request_end(struct bius_request *request) {
@@ -103,6 +107,7 @@ static void bius_report_zones_request_end(struct bius_request *request) {
 }
 
 static int bius_report_zones(struct gendisk *disk, sector_t sector, unsigned int nr_zones, report_zones_cb cb, void *data) {
+    struct bius_block_device *device = disk->private_data;
     struct bius_request request;
     struct blk_zone *blkz;
     int result;
@@ -121,11 +126,11 @@ static int bius_report_zones(struct gendisk *disk, sector_t sector, unsigned int
     request.on_request_end = bius_report_zones_request_end;
     sema_init(&request.sem, 0);
 
-    spin_lock(&only_device->pending_lock);
-    list_add_tail(&request.list, &only_device->pending_requests);
-    spin_unlock(&only_device->pending_lock);
+    spin_lock(&device->pending_lock);
+    list_add_tail(&request.list, &device->pending_requests);
+    spin_unlock(&device->pending_lock);
 
-    wake_up(&only_device->wait_queue);
+    wake_up(&device->wait_queue);
 
     result = down_killable(&request.sem);
     if (result < 0)
@@ -160,8 +165,7 @@ struct block_device_operations bius_fops = {
     .report_zones = bius_report_zones,
 };
 
-int create_block_device(const char *name) {
-    const unsigned long device_size = 1lu * 1024 * 1024 * 1024;
+int create_block_device(struct bius_block_device_options *options, struct bius_block_device **out_device) {
     struct bius_block_device *bius_device;
     int ret = 0;
 
@@ -169,8 +173,9 @@ int create_block_device(const char *name) {
     if (bius_device == NULL)
         return -ENOMEM;
     init_bius_block_device(bius_device);
+    bius_device->model = options->model;
 
-    ret = register_blkdev(0, name);
+    ret = register_blkdev(0, options->disk_name);
     if (ret < 0) {
         printk("bius: register_blkdev failed: %d\n", ret);
         goto out_free_device;
@@ -183,7 +188,7 @@ int create_block_device(const char *name) {
         goto out_unregister;
     }
 
-    initialize_tag_set(&bius_device->tag_set);
+    initialize_tag_set(&bius_device->tag_set, bius_device);
     ret = blk_mq_alloc_tag_set(&bius_device->tag_set);
     if (ret < 0) {
         printk("bius: blk_mq_alloc_tag_set failed: %d\n", ret);
@@ -209,28 +214,31 @@ int create_block_device(const char *name) {
     blk_queue_chunk_sectors(bius_device->disk->queue, BIUS_MAX_SIZE_PER_COMMAND / SECTOR_SIZE);
     blk_queue_io_min(bius_device->disk->queue, 512 * 1024);
 
-    strncpy(bius_device->disk->disk_name, name, DISK_NAME_LEN);
+    strncpy(bius_device->disk->disk_name, options->disk_name, DISK_NAME_LEN);
     bius_device->disk->major = bius_device->major;
     bius_device->disk->first_minor = 1;
     bius_device->disk->fops = &bius_fops;
-    bius_device->disk->private_data = NULL;
+    bius_device->disk->private_data = bius_device;
 
-    /* TODO: FIX HERE */
-    set_capacity(bius_device->disk, device_size / SECTOR_SIZE);
+    set_capacity(bius_device->disk, options->disk_size / SECTOR_SIZE);
 
-    blk_queue_set_zoned(bius_device->disk, BLK_ZONED_HM);
-    blk_queue_flag_set(QUEUE_FLAG_ZONE_RESETALL, bius_device->q);
-    blk_queue_required_elevator_features(bius_device->q, ELEVATOR_F_ZBD_SEQ_WRITE);
+    if (options->model != BLK_ZONED_NONE) {
+        blk_queue_set_zoned(bius_device->disk, BLK_ZONED_HM);
+        blk_queue_flag_set(QUEUE_FLAG_ZONE_RESETALL, bius_device->q);
+        blk_queue_required_elevator_features(bius_device->q, ELEVATOR_F_ZBD_SEQ_WRITE);
 
-    blk_queue_max_zone_append_sectors(bius_device->q, BIUS_MAX_ZONE_SECTORS);
-    blk_queue_max_open_zones(bius_device->q, 65536);
-    blk_queue_max_active_zones(bius_device->q, 65536);
+        blk_queue_max_zone_append_sectors(bius_device->q, BIUS_MAX_ZONE_SECTORS);
+        blk_queue_max_open_zones(bius_device->q, 65536);
+        blk_queue_max_active_zones(bius_device->q, 65536);
+    }
 
     add_disk(bius_device->disk);
 
-    if (only_device == NULL)
-        only_device = bius_device;
+    spin_lock(&disk_list_lock);
+    list_add_tail(&bius_device->disk_list, &all_disk_list);
+    spin_unlock(&disk_list_lock);
 
+    *out_device = bius_device;
     return 0;
 
 out_free_tag_set:
@@ -240,7 +248,7 @@ out_put_disk:
     put_disk(bius_device->disk);
 
 out_unregister:
-    unregister_blkdev(bius_device->major, name);
+    unregister_blkdev(bius_device->major, options->disk_name);
 
 out_free_device:
     kfree(bius_device);
@@ -249,13 +257,15 @@ out_free_device:
 }
 
 void remove_block_device(const char *name) {
-    struct bius_block_device *bius_device = only_device;
+    struct bius_block_device *bius_device = get_block_device(name);
     struct bius_request *request;
 
     if (bius_device == NULL)
         return;
 
-    only_device = NULL;
+    spin_lock(&disk_list_lock);
+    list_del(&bius_device->disk_list);
+    spin_unlock(&disk_list_lock);
 
     list_for_each_entry(request, &bius_device->pending_requests, list) {
         struct request *rq = blk_mq_rq_from_pdu(request);
@@ -268,16 +278,37 @@ void remove_block_device(const char *name) {
     unregister_blkdev(bius_device->major, name);
 }
 
-int bius_revalidate(struct bius_block_device *device) {
+static int bius_do_revalidate(void *arg) {
+    struct bius_block_device *device = arg;
     int ret;
 
-    device->validated = 1;
-
     ret = blk_revalidate_disk_zones(device->disk, NULL);
-    if (ret) {
+    if (ret)
         printk("bius: blk_revalidate_disk_zones = %d\n", ret);
-        return ret;
-    }
 
-    return 0;
+    do_exit(ret);
+    return ret;
+}
+
+void bius_revalidate(struct bius_block_device *device) {
+    kthread_run(bius_do_revalidate, device, "revalidate %s", device->disk->disk_name);
+}
+
+struct bius_block_device *get_block_device(const char *disk_name) {
+    struct bius_block_device *device;
+    bool found = false;
+
+    spin_lock(&disk_list_lock);
+    list_for_each_entry_reverse(device, &all_disk_list, disk_list) {
+        if (strncmp(device->disk->disk_name, disk_name, DISK_NAME_LEN) == 0) {
+            found = true;
+            break;
+        }
+    }
+    spin_unlock(&disk_list_lock);
+
+    if (found)
+        return device;
+    else
+        return NULL;
 }

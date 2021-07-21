@@ -4,6 +4,7 @@
 #include <linux/blkzoned.h>
 #include <sys/types.h>
 #include <bius/blk_status.h>
+#include <bius/command_header.h>
 
 #define SECTOR_SIZE 512
 #define BIUS_DEFAULT_NUM_THREADS 4
@@ -22,11 +23,6 @@ struct bius_operations {
     blk_status_t (*reset_all_zone)();
 };
 
-struct bius_options {
-    const struct bius_operations *operations;
-    size_t num_threads;
-};
-
-int bius_main(const struct bius_options *options);
+int bius_main(const struct bius_operations *operations, const struct bius_block_device_options *options);
 
 #endif

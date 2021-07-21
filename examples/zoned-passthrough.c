@@ -313,8 +313,8 @@ int main(int argc, char *argv[]) {
         .reset_zone = passthrough_reset_zone,
         .reset_all_zone = passthrough_reset_all_zone,
     };
-    struct bius_options options = {
-        .operations = &operations,
+    struct bius_block_device_options options = {
+        .model = BLK_ZONED_HM,
         .num_threads = 4,
     };
 
@@ -337,7 +337,10 @@ int main(int argc, char *argv[]) {
     num_zones = disk_size / ZONE_SIZE;
     printd("disk_size = %lu, num_zones = %lu\n", disk_size, num_zones);
 
+    options.disk_size = disk_size;
+    strncpy(options.disk_name, "zoned-passthrough", MAX_DISK_NAME_LEN);
+
     initialize();
 
-    return bius_main(&options);
+    return bius_main(&operations, &options);
 }

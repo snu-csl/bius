@@ -14,49 +14,6 @@
 
 static int target_fd;
 
-#define ZONE_SIZE (512 * 1024 * 1024)
-
-uint64_t disk_size;
-uint64_t num_zones;
-
-struct blk_zone *zone_info;
-pthread_spinlock_t *zone_locks;
-
-static void initialize_zone_info() {
-    zone_info = malloc(sizeof(struct blk_zone) * num_zones);
-    zone_locks = malloc(sizeof(pthread_spinlock_t) * num_zones);
-    if (zone_info == NULL || zone_locks == NULL) {
-        fprintf(stderr, "zone info malloc failed, num_zones = %lu\n", num_zones);
-    }
-
-    memset(zone_info, 0, sizeof(struct blk_zone) * num_zones);
-
-    for (int i = 0; i < num_zones; i++) {
-        zone_info[i].start = ZONE_SIZE / SECTOR_SIZE * i;
-        zone_info[i].len = ZONE_SIZE / SECTOR_SIZE;
-        zone_info[i].wp = ZONE_SIZE / SECTOR_SIZE * i;
-        zone_info[i].type = BLK_ZONE_TYPE_CONVENTIONAL;
-        zone_info[i].cond = BLK_ZONE_COND_NOT_WP;
-        zone_info[i].capacity = ZONE_SIZE / SECTOR_SIZE;
-
-        if (i == num_zones - 1) {
-            zone_info[i].capacity = disk_size / SECTOR_SIZE - zone_info[i].start;
-        }
-    }
-
-    for (int i = 0; i < num_zones; i++) {
-        int error = pthread_spin_init(&zone_locks[i], PTHREAD_PROCESS_PRIVATE);
-        if (error < 0) {
-            fprintf(stderr, "pthread_spin_init failed: %s\n", strerror(error));
-            exit(1);
-        }
-    }
-}
-
-static inline int zone_number(off64_t offset) {
-    return offset / ZONE_SIZE;
-}
-
 static blk_status_t passthrough_read(void *data, off64_t offset, size_t length) {
     ssize_t read_size = 0;
 
@@ -111,30 +68,15 @@ static blk_status_t passthrough_flush() {
     return BLK_STS_OK;
 }
 
-static int passthrough_report_zones(off64_t offset, int nr_zones, struct blk_zone *zones) {
-    int start_zone = zone_number(offset);
-
-    nr_zones = min(nr_zones, num_zones - start_zone);
-
-    for (int i = 0; i < nr_zones; i++) {
-        pthread_spin_lock(&zone_locks[start_zone + i]);
-        memcpy(&zones[i], &zone_info[start_zone + i], sizeof(struct blk_zone));
-        pthread_spin_unlock(&zone_locks[start_zone + i]);
-    }
-
-    return nr_zones;
-}
-
 int main(int argc, char *argv[]) {
     struct bius_operations operations = {
         .read = passthrough_read,
         .write = passthrough_write,
         .discard = passthrough_discard,
         .flush = passthrough_flush,
-        .report_zones = passthrough_report_zones,
     };
-    struct bius_options options = {
-        .operations = &operations,
+    struct bius_block_device_options options = {
+        .model = BLK_ZONED_NONE,
         .num_threads = 4,
     };
 
@@ -149,15 +91,13 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (ioctl(target_fd, BLKGETSIZE64, &disk_size) < 0) {
+    if (ioctl(target_fd, BLKGETSIZE64, &options.disk_size) < 0) {
         fprintf(stderr, "ioctl BLKGETSIZE64 failed: %s\n", strerror(errno));
         return 1;
     }
-    disk_size = disk_size - (disk_size % ZONE_SIZE);
-    num_zones = disk_size / ZONE_SIZE;
-    printd("disk_size = %lu, num_zones = %lu\n", disk_size, num_zones);
+    printd("disk_size = %lu\n", options.disk_size);
 
-    initialize_zone_info();
+    strncpy(options.disk_name, "passthrough", MAX_DISK_NAME_LEN);
 
-    return bius_main(&options);
+    return bius_main(&operations, &options);
 }

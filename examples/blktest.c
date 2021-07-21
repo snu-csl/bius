@@ -103,15 +103,20 @@ int do_test_hard(int fd) {
 }
 
 int main(int argc, char **argv) {
-    int fd = open("/dev/bius-block", O_RDWR | O_DIRECT);
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s [device]\n", argv[0]);
+        return 1;
+    }
+
+    int fd = open(argv[1], O_RDWR | O_DIRECT);
     enum test_mode mode = TEST_MODE_SIMPLE;
     if (fd < 0) {
         fprintf(stderr, "open failed: %s\n", strerror(errno));
         return 1;
     }
 
-    if (argc >= 2) {
-        if (strcmp(argv[1], "--hard") == 0)
+    if (argc >= 3) {
+        if (strcmp(argv[2], "--hard") == 0)
             mode = TEST_MODE_HARD;
     }
 

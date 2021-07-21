@@ -6,8 +6,8 @@
 #endif
 
 typedef enum bius_req {
-    BIUS_CONNECT = 0,
-    BIUS_DISCONNECT = 1,
+    BIUS_CREATE = 0,
+    BIUS_CONNECT = 1,
     BIUS_READ = 2,
     BIUS_WRITE = 3,
     BIUS_DISCARD = 4,

@@ -14,19 +14,14 @@ unsigned long zero_page_pfn = 0;
 
 static int bius_dev_open(struct inode *inode, struct file *file) {
     struct bius_connection *connection;
-    struct bius_block_device *device;
     int error = 0;
-
-    if (only_device == NULL)
-        return -EIO;
-    device = only_device;
 
     connection = kmalloc(sizeof(struct bius_connection), GFP_KERNEL);
     if (connection == NULL)
         return -ENOMEM;
 
     init_bius_connection(connection);
-    connection->block_dev = device;
+    connection->block_dev = NULL;
     file->private_data = connection;
 
     connection->reserved_pages = kmalloc(PAGE_SIZE * BIUS_NUM_RESERVED_PAGES, GFP_KERNEL);
@@ -35,12 +30,6 @@ static int bius_dev_open(struct inode *inode, struct file *file) {
         goto out_free;
     }
     connection->reserved_pages_pfn = PHYS_PFN(virt_to_phys(connection->reserved_pages));
-
-    spin_lock(&device->connection_lock);
-    device->num_connection++;
-    if (!device->validated && device->num_connection >= 2)
-        bius_revalidate(device);
-    spin_unlock(&device->connection_lock);
 
     return 0;
 
@@ -56,6 +45,11 @@ static ssize_t bius_dev_read(struct kiocb *iocb, struct iov_iter *to) {
     struct bius_block_device *block_dev = connection->block_dev;
     struct bius_request *request;
     size_t user_buffer_size = iov_iter_count(to);
+
+    if (block_dev == NULL) {
+        printk("bius: Read requested before creating or connecting to block device\n");
+        return -EIO;
+    }
 
     printd("bius: dev_read: size = %ld\n", user_buffer_size);
 
@@ -121,6 +115,56 @@ static ssize_t bius_dev_read(struct kiocb *iocb, struct iov_iter *to) {
     return total_read;
 }
 
+static ssize_t handle_initialization(struct bius_connection *connection, struct bius_u2k_header *header) {
+    unsigned long result;
+    char __user *user_buffer = (char __user *)header->user_data;
+    struct bius_block_device *device;
+
+    if (header->u2k_type == BIUS_CREATE) {
+        struct bius_block_device_options options;
+
+        result = copy_from_user(&options, user_buffer, sizeof(options));
+        if (result != 0) {
+            printk("bius: Reading block device options failed: %lu\n", result);
+            return -EIO;
+        }
+
+        result = create_block_device(&options, &device);
+        if (result < 0)
+            return -result;
+
+        if (options.model != BLK_ZONED_NONE)
+            bius_revalidate(device);
+    } else if (header->u2k_type == BIUS_CONNECT) {
+        char disk_name[DISK_NAME_LEN];
+        unsigned int name_length = min_t(unsigned int, DISK_NAME_LEN, header->u2k_length);
+
+        memset(disk_name, 0, DISK_NAME_LEN);
+        result = copy_from_user(disk_name, user_buffer, name_length);
+        if (result != 0) {
+            printd("bius: Reading disk name failed\n");
+            return -EIO;
+        }
+
+        device = get_block_device(disk_name);
+        if (device == NULL) {
+            printk("bius: Device not found: %s\n", disk_name);
+            return -ENOENT;
+        }
+    } else {
+        printd("bius: Invalid user to kernel request: %d\n", header->u2k_type);
+        return -EINVAL;
+    }
+
+    spin_lock(&device->connection_lock);
+    device->num_connection++;
+    spin_unlock(&device->connection_lock);
+
+    connection->block_dev = device;
+
+    return sizeof(struct bius_u2k_header);
+}
+
 static ssize_t bius_dev_write(struct kiocb *iocb, struct iov_iter *from) {
     ssize_t total_written = 0;
     ssize_t ret;
@@ -137,6 +181,9 @@ static ssize_t bius_dev_write(struct kiocb *iocb, struct iov_iter *from) {
     ret = copy_from_iter(&header, sizeof(header), from);
     if (ret <= 0)
         return ret;
+
+    if (unlikely(!connection->block_dev))
+        return handle_initialization(connection, &header);
 
     spin_lock(&connection->waiting_lock);
     request = get_request_by_id(&connection->waiting_requests, header.id);
@@ -203,9 +250,15 @@ static int bius_dev_release(struct inode *inode, struct file *file) {
     }
 
     if (device) {
+        bool remove_device = false;
+
         spin_lock(&device->connection_lock);
         device->num_connection--;
+        remove_device = device->num_connection == 0;
         spin_unlock(&device->connection_lock);
+
+        if (remove_device)
+            remove_block_device(device->disk->disk_name);
     }
 
     kfree(connection->reserved_pages);

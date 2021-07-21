@@ -16,6 +16,39 @@
 #define PAGE_SIZE 4096
 #define DATA_MAP_AREA_SIZE (BIUS_MAX_SIZE_PER_COMMAND + PAGE_SIZE)
 
+struct thread_parameter {
+    const struct bius_operations *operations;
+    const struct bius_block_device_options *options;
+};
+
+static void create_block_device(int fd, const struct bius_block_device_options *options) {
+    struct bius_u2k_header u2k = {
+        .id = 0,
+        .u2k_type = BIUS_CREATE,
+        .u2k_length = strlen(options->disk_name),
+        .user_data = (uint64_t)options,
+    };
+
+    if (write(fd, &u2k, sizeof(u2k)) < 0) {
+        fprintf(stderr, "Create block device failed: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
+static void connect_block_device(int fd, const struct bius_block_device_options *options) {
+    struct bius_u2k_header u2k = {
+        .id = 0,
+        .u2k_type = BIUS_CONNECT,
+        .u2k_length = strlen(options->disk_name),
+        .user_data = (uint64_t)options->disk_name,
+    };
+
+    if (write(fd, &u2k, sizeof(u2k)) < 0) {
+        fprintf(stderr, "Connect block device failed: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
 static inline int read_command(int fd, struct bius_k2u_header *header) {
     ssize_t result = read(fd, header, sizeof(struct bius_k2u_header));
     if (result < 0) {
@@ -175,17 +208,10 @@ static inline int64_t handle_blk_command(const struct bius_k2u_header *k2u, cons
     }
 }
 
-static void *thread_main(void *arg) {
-    const struct bius_options *options = arg;
-    const struct bius_operations *ops = options->operations;
+static void handle_requests(int bius_char_dev, const struct bius_operations *ops) {
     struct bius_k2u_header k2u;
     struct bius_u2k_header u2k;
     struct blk_zone *zone_info = NULL;
-    int bius_char_dev = open("/dev/bius", O_RDWR);
-    if (bius_char_dev < 0) {
-        fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
-        exit(1);
-    }
     void *data_area = mmap(NULL, DATA_MAP_AREA_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, bius_char_dev, 0);
     printd("mmap result = %p\n", data_area);
     if (data_area == MAP_FAILED) {
@@ -197,7 +223,6 @@ static void *thread_main(void *arg) {
         fprintf(stderr, "data copy buffer allocation failed: %s\n", strerror(errno));
         exit(1);
     }
-
 
     while (1) {
         int result = read_command(bius_char_dev, &k2u);
@@ -228,33 +253,58 @@ static void *thread_main(void *arg) {
             zone_info = NULL;
         }
     }
+}
+
+static void *thread_main(void *arg) {
+    struct thread_parameter *t_parameter = arg;
+    int bius_char_dev = open("/dev/bius", O_RDWR);
+    if (bius_char_dev < 0) {
+        fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    connect_block_device(bius_char_dev, t_parameter->options);
+    handle_requests(bius_char_dev, t_parameter->operations);
 
     return NULL;
 }
 
-static inline int bius_main_real(const struct bius_options *options) {
+static inline int bius_main_real(const struct bius_operations *operations, const struct bius_block_device_options *options) {
+    struct thread_parameter t_parameter = {
+        .operations = operations,
+        .options = options,
+    };
     size_t num_threads = BIUS_DEFAULT_NUM_THREADS;
     int result = 0;
     pthread_t *threads;
 
-    if (options->operations == NULL)
+    if (operations == NULL || options == NULL)
         return -EINVAL;
     if (options->num_threads != 0)
         num_threads = options->num_threads;
 
-    threads = malloc(sizeof(pthread_t) * num_threads);
+    threads = malloc(sizeof(pthread_t) * (num_threads - 1));
     if (threads == NULL)
         return -ENOMEM;
 
-    for (int i = 0; i < num_threads; i++) {
-        result = pthread_create(&threads[i], NULL, thread_main, (struct bius_options *)options);
+    int bius_char_dev = open("/dev/bius", O_RDWR);
+    if (bius_char_dev < 0) {
+        fprintf(stderr, "char dev open failed: %s\n", strerror(errno));
+        exit(1);
+    }
+    create_block_device(bius_char_dev, options);
+
+    for (int i = 0; i < num_threads - 1; i++) {
+        result = pthread_create(&threads[i], NULL, thread_main, &t_parameter);
         if (result < 0) {
             fprintf(stderr, "pthread_create failed: %s\n", strerror(result));
             goto out_free;
         }
     }
 
-    for (int i = 0; i < num_threads; i++) {
+    handle_requests(bius_char_dev, operations);
+
+    for (int i = 0; i < num_threads - 1; i++) {
         void *thread_result;
 
         result = pthread_join(threads[i], &thread_result);
@@ -270,8 +320,8 @@ out_free:
     return result;
 }
 
-int bius_main(const struct bius_options *options) {
-    int result = bius_main_real(options);
+int bius_main(const struct bius_operations *operations, const struct bius_block_device_options *options) {
+    int result = bius_main_real(operations, options);
 
     if (result < 0) {
         errno = result;
