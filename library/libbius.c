@@ -151,8 +151,7 @@ static inline int64_t handle_blk_command(const struct bius_k2u_header *k2u, cons
 
     switch (k2u->opcode) {
         case BIUS_READ:
-            if (k2u->length <= BIUS_MAP_DATA_THRESHOLD)
-                *out_user_data = (unsigned long)(k2u->data_address + k2u->mapping_data);
+            *out_user_data = (unsigned long)(k2u->data_address + k2u->mapping_data);
             if (ops->read)
                 return ops->read((void *)k2u->data_address + k2u->mapping_data, k2u->offset, k2u->length);
             else
