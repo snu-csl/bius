@@ -130,6 +130,11 @@ static inline int64_t handle_blk_command_with_datamap_list(const struct bius_k2u
                 else
                     return BLK_STS_NOTSUPP;
                 break;
+#ifdef CONFIG_ZONE_DESC_EXT
+             case BIUS_ZONE_SET_DESC:
+                fprintf(stderr, "Unexpected kernel behavior: data of ZONE_SET_DESC is not continuous");
+                return BLK_STS_IOERR;
+#endif
              default:
                 fprintf(stderr, "Unknown opcode at handle_blk_command_with_datamap_list: %d\n", k2u->opcode);
                 return BLK_STS_NOTSUPP;
@@ -201,6 +206,13 @@ static inline int64_t handle_blk_command(const struct bius_k2u_header *k2u, cons
                 return ops->reset_all_zone();
             else
                 return BLK_STS_NOTSUPP;
+#ifdef CONFIG_ZONE_DESC_EXT
+        case BIUS_ZONE_SET_DESC:
+            if (ops->zone_set_desc)
+                return ops->zone_sec_desc((void *)k2u->data_address + k2u->mapping_data, k2u->length);
+            else
+                return BLK_STS_NOTSUPP;
+#endif
         default:
             fprintf(stderr, "Unknown opcode at handle_blk_command: %d\n", k2u->opcode);
             return BLK_STS_NOTSUPP;

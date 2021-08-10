@@ -21,6 +21,9 @@ struct bius_operations {
     blk_status_t (*append_zone)(const void *data, off64_t offset, size_t length, off64_t *out_written_position);
     blk_status_t (*reset_zone)(off64_t offset);
     blk_status_t (*reset_all_zone)();
+#ifdef CONFIG_ZONE_DESC_EXT
+    blk_status_t (*zone_set_desc)(const void *data, size_t length);
+#endif
 };
 
 int bius_main(const struct bius_operations *operations, const struct bius_block_device_options *options);

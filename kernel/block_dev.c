@@ -27,6 +27,9 @@ static inline bius_req_t to_bius_request(unsigned int op) {
         case REQ_OP_ZONE_APPEND:
         case REQ_OP_ZONE_RESET:
         case REQ_OP_ZONE_RESET_ALL:
+#ifdef CONFIG_ZONE_DESC_EXT
+        case REQ_OP_ZONE_SET_DESC:
+#endif
             return (bius_req_t)op;
         default:
             return BIUS_INVALID_OP;

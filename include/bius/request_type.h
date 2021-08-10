@@ -20,6 +20,9 @@ typedef enum bius_req {
     BIUS_ZONE_APPEND = 13,
     BIUS_ZONE_RESET = 15,
     BIUS_ZONE_RESET_ALL = 17,
+#ifdef CONFIG_ZONE_DESC_EXT
+    BIUS_ZONE_SET_DESC /* = ?? TODO: Match value to kernel's REQ_OP_ZONE_SET_DESC */,
+#endif
 } bius_req_t;
 
 #define BIUS_INVALID_OP ((bius_req_t)-1)
@@ -29,10 +32,18 @@ static inline bool is_blk_request(bius_req_t type) {
 }
 
 static inline bool request_may_have_data(bius_req_t type) {
+#ifdef CONFIG_ZONE_DESC_EXT
+    if (type == BIUS_ZONE_SET_DESC)
+        return true;
+#endif
     return type == BIUS_READ || type == BIUS_WRITE || type == BIUS_ZONE_APPEND;
 }
 
 static inline bool request_is_write(bius_req_t type) {
+#ifdef CONFIG_ZONE_DESC_EXT
+    if (type == BIUS_ZONE_SET_DESC)
+        return true;
+#endif
     return type == BIUS_WRITE || type == BIUS_ZONE_APPEND;
 }
 
