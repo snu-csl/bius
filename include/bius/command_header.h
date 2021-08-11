@@ -46,6 +46,8 @@ struct bius_block_device_options {
     enum blk_zoned_model model;
     unsigned int num_threads;
     unsigned long disk_size;
+    unsigned int max_open_zones;
+    unsigned int max_active_zones;
     char disk_name[MAX_DISK_NAME_LEN];
 };
 

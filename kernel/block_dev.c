@@ -231,8 +231,8 @@ int create_block_device(struct bius_block_device_options *options, struct bius_b
         blk_queue_required_elevator_features(bius_device->q, ELEVATOR_F_ZBD_SEQ_WRITE);
 
         blk_queue_max_zone_append_sectors(bius_device->q, BIUS_MAX_ZONE_SECTORS);
-        blk_queue_max_open_zones(bius_device->q, 65536);
-        blk_queue_max_active_zones(bius_device->q, 65536);
+        blk_queue_max_open_zones(bius_device->q, options->max_open_zones);
+        blk_queue_max_active_zones(bius_device->q, options->max_active_zones);
     }
 
     add_disk(bius_device->disk);
